@@ -118,6 +118,28 @@ func TestInstallPS1(t *testing.T) {
 				t.Errorf("install.ps1 of %+v has no %q", tc.updates, line)
 			}
 		}
+		// It stops the app's processes, those running from its folder, that
+		// do not quit when asked.
+		for _, line := range []string{
+			"$_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)",
+			"$running | Stop-Process -Force",
+			"Wait-Exit $running 10\n",
+		} {
+			if !strings.Contains(script, line) {
+				t.Errorf("install.ps1 of %+v has no %q", tc.updates, line)
+			}
+		}
+		if strings.Contains(script, "60000") {
+			t.Errorf("install.ps1 of %+v waits a minute for the app to quit", tc.updates)
+		}
+		// Windows PowerShell 5.1 reads a script without a BOM in the code
+		// page of the system.
+		for i, r := range script {
+			if r >= 0x80 {
+				t.Errorf("install.ps1 of %+v has %q at %d: not ASCII", tc.updates, r, i)
+				break
+			}
+		}
 		// The installer it looks for is the one the build names.
 		if !strings.HasPrefix(installerFileName(c, "arm64"), "Jane's App Setup ") {
 			t.Errorf("installer %s", installerFileName(c, "arm64"))

@@ -28,6 +28,10 @@ type Config struct {
 	Identifier string `json:"identifier"`
 	Version    string `json:"version"`
 	Copyright  string `json:"copyright"`
+	// Publisher is who makes the app, which Windows lists with the
+	// installed app (default: the copyright notice without its "©" and
+	// years, as "Example Inc." of "Copyright © 2026 Example Inc.").
+	Publisher string `json:"publisher"`
 	// Icon is a square PNG, ideally 1024x1024 (default:
 	// resources/icon.png when it exists). Beside it, the same name with
 	// -dev, as icon-dev.png, is the development app's, when it exists.
@@ -93,6 +97,21 @@ type Config struct {
 	langs     []appLanguage
 	langsErr  error
 	langsRead bool
+}
+
+// copyrightNoise is what publisher strips off a copyright notice: the
+// words and signs of copyright, years and ranges of years, and "All rights
+// reserved".
+var copyrightNoise = regexp.MustCompile(`(?i)\bcopyright\b|©|\(c\)|\b\d{4}\b(\s*[-–]\s*(\d{4}\b|present\b))?|\ball rights reserved\b\.?`)
+
+// publisher returns Publisher, or else the copyright notice without its
+// "©" and years, or "".
+func (c *Config) publisher() string {
+	if p := strings.TrimSpace(c.Publisher); p != "" {
+		return p
+	}
+	p := copyrightNoise.ReplaceAllString(c.Copyright, " ")
+	return strings.Trim(strings.Join(strings.Fields(p), " "), " ,;:-–")
 }
 
 // configName names the configuration file in messages.

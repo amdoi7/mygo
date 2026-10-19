@@ -58,6 +58,11 @@ export interface Config {
   version?: string;
   /** The copyright notice of the app. */
   copyright?: string;
+  /**
+   * Who makes the app, which Windows lists with the installed app (default:
+   * the copyright notice without its "©" and years).
+   */
+  publisher?: string;
   /** A square PNG, ideally 1024×1024 (default: `resources/icon.png` when it exists). */
   icon?: string;
   /** The Go package of the app, relative to the project (default: `.`). */

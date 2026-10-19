@@ -12,9 +12,10 @@ import (
 // The install script of Windows apps with updates: install.ps1 downloads
 // the installer of the latest version for the machine's architecture
 // (installerFileName), checks its SHA-256 against SHA256SUMS of the same
-// release (writeChecksums), quits the app if it runs, and runs the
-// installer silently, for the user, in the folder of the installed version,
-// then opens the app:
+// release (writeChecksums), quits the app if it runs, stopping it when it
+// keeps running 10 s after its windows were asked to close, as in the
+// tray, and runs the installer silently, for the user, in the folder of
+// the installed version, then opens the app:
 //
 //	irm https://github.com/me/my-app/releases/latest/download/install.ps1 | iex
 //
@@ -144,6 +145,25 @@ function Get-LatestTag {
 	throw "no release of $appName is published"
 }
 
+# Get-AppProcess returns the processes running from the folder, as far as
+# Windows lets this see their paths.
+function Get-AppProcess([string]$folder) {
+	$dir = $folder.TrimEnd('\') + '\'
+	Get-Process -ErrorAction SilentlyContinue | Where-Object {
+		try { $_.Path -and $_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
+	}
+}
+
+# Wait-Exit waits up to the seconds for the processes to exit.
+function Wait-Exit($processes, [int]$seconds) {
+	$deadline = (Get-Date).AddSeconds($seconds)
+	foreach ($p in $processes) {
+		$left = [int]($deadline - (Get-Date)).TotalMilliseconds
+		if ($left -lt 0) { $left = 0 }
+		try { [void]$p.WaitForExit($left) } catch {}
+	}
+}
+
 function Install-App {
 	try {
 		[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -202,15 +222,19 @@ function Install-App {
 		$location = (Get-ItemProperty -Path $uninstallKey -ErrorAction SilentlyContinue).InstallLocation
 		if ($location) { $folder = $location.TrimEnd('\') }
 
-		# The processes of the app, as far as Windows lets it see their paths.
-		$running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-			try { $_.Path -and $_.Path.StartsWith($folder + '\', [StringComparison]::OrdinalIgnoreCase) } catch { $false }
-		})
+		# Quit the app: ask its windows to close and, after 10 s, stop the
+		# processes still running from its folder, as an app in the tray
+		# keeps running without windows.
+		$running = @(Get-AppProcess $folder)
 		if ($running.Count -gt 0) {
 			Write-Host "Quitting $appName"
-			foreach ($p in $running) { [void]$p.CloseMainWindow() }
-			foreach ($p in $running) {
-				if (-not $p.WaitForExit(60000)) { throw "$appName is still running: quit it and run this again" }
+			foreach ($p in $running) { try { [void]$p.CloseMainWindow() } catch {} }
+			Wait-Exit $running 10
+			$running = @(Get-AppProcess $folder)
+			if ($running.Count -gt 0) {
+				$running | Stop-Process -Force -ErrorAction SilentlyContinue
+				Wait-Exit $running 10
+				if (@(Get-AppProcess $folder).Count -gt 0) { throw "$appName is still running: quit it and run this again" }
 			}
 		}
 
