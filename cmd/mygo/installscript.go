@@ -30,9 +30,10 @@ import (
 // says so: an archive given to it is not checked.
 //
 // On macOS it downloads the archive of the latest version that the manifest
-// of darwin-universal (else of the Mac's architecture) names, checks its
-// size and its Ed25519 signature against updates.publicKey, as the app's
-// updater does, quits the app if it runs, puts the bundle in /Applications,
+// of the Mac's architecture (else of darwin-universal) names, Apple silicon
+// even from a shell under Rosetta, checks its size and its Ed25519
+// signature against updates.publicKey, as the app's updater does, quits
+// the app if it runs, puts the bundle in /Applications,
 // or ~/Applications when the user cannot write there or it is already
 // there, and opens it. curl sets no quarantine, so the app opens without
 // the prompt of Gatekeeper for a downloaded app. macOS has no tool that
@@ -353,7 +354,7 @@ latest_tag() {
 }
 
 # macos installs the latest version on macOS, whose archive the manifest of
-# darwin-universal, else of the Mac's architecture, names, after checking
+# the Mac's architecture, else of darwin-universal, names, after checking
 # its size and signature; or with --uninstall removes the installed app.
 macos() {
 	[ "$(id -u)" != 0 ] || fail "run this as the user to install $app_name for, not as root"
@@ -373,6 +374,10 @@ macos() {
 	x86_64) arch=amd64 ;;
 	*) fail "$app_name is not made for $(uname -m)" ;;
 	esac
+	# A shell under Rosetta sees an Intel Mac; the Mac is Apple silicon.
+	if [ "$arch" = amd64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ]; then
+		arch=arm64
+	fi
 	if [ -n "$api" ]; then
 		tag="$(latest_tag)" || fail "could not list the releases at $api"
 		[ -n "$tag" ] || fail "no release of $app_name is published"
@@ -380,12 +385,12 @@ macos() {
 	else
 		base="$releases"
 	fi
-	if fetch "${base}update-darwin-universal.json" >"$work/update.json" 2>/dev/null; then
-		target=darwin-universal
-	elif fetch "${base}update-darwin-$arch.json" >"$work/update.json" 2>/dev/null; then
+	if fetch "${base}update-darwin-$arch.json" >"$work/update.json" 2>/dev/null; then
 		target="darwin-$arch"
+	elif fetch "${base}update-darwin-universal.json" >"$work/update.json" 2>/dev/null; then
+		target=darwin-universal
 	else
-		fail "could not download ${base}update-darwin-universal.json or update-darwin-$arch.json"
+		fail "could not download ${base}update-darwin-$arch.json or update-darwin-universal.json"
 	fi
 	latest="$(field version)"
 	url="$(field url)"

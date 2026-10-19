@@ -374,7 +374,7 @@ func TestInstallScriptMacOS(t *testing.T) {
 	c.applyDefaults()
 	// publish builds the bundle of version, a script printing it, and
 	// serves its archive and manifest.
-	publish := func(version string) {
+	publish := func(version, target string) {
 		t.Helper()
 		c.Version = version
 		stage := t.TempDir()
@@ -385,10 +385,10 @@ func TestInstallScriptMacOS(t *testing.T) {
 			t.Fatal(err)
 		}
 		os.WriteFile(filepath.Join(app, "Contents", "Resources", "only-"+version), nil, 0o644)
-		if _, err := writeArchive(c, stage, "darwin-universal", []string{"My App.app"}); err != nil {
+		if _, err := writeArchive(c, stage, target, []string{"My App.app"}); err != nil {
 			t.Fatal(err)
 		}
-		for _, name := range []string{"my-app-" + version + "-darwin-universal.tar.gz", "update-darwin-universal.json"} {
+		for _, name := range []string{"my-app-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"} {
 			b, err := os.ReadFile(filepath.Join(stage, name))
 			if err != nil {
 				t.Fatal(err)
@@ -397,8 +397,23 @@ func TestInstallScriptMacOS(t *testing.T) {
 		}
 	}
 	script := filepath.Join(t.TempDir(), "install.sh")
+	// uname and sysctl answer as the Mac of machine (arm64 or x86_64)
+	// would, translated by Rosetta when translated is "1".
+	bin := t.TempDir()
+	for name, body := range map[string]string{
+		"uname":  "#!/bin/sh\ncase \"$1\" in -s) echo Darwin ;; -m) echo \"$FAKE_MACHINE\" ;; esac\n",
+		"sysctl": "#!/bin/sh\n[ \"$2\" = sysctl.proc_translated ] && echo \"$FAKE_TRANSLATED\"\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	machine, translated := "arm64", "0"
 	run := func(args ...string) (string, error) {
-		out, err := exec.Command("sh", append([]string{script}, args...)...).CombinedOutput()
+		cmd := exec.Command("sh", append([]string{script}, args...)...)
+		cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"FAKE_MACHINE="+machine, "FAKE_TRANSLATED="+translated)
+		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
 	app := filepath.Join(apps, "My App.app")
@@ -418,15 +433,35 @@ func TestInstallScriptMacOS(t *testing.T) {
 		}
 	}
 
-	publish("1.0.0")
+	// Only a universal build is published: Apple silicon installs it.
+	publish("1.0.0", "darwin-universal")
 	os.WriteFile(script, []byte(installScript(c)), 0o755)
 	if out, err := run(); err != nil || !strings.Contains(out, "Downloading My App 1.0.0") || !strings.HasSuffix(out, "Installed My App 1.0.0 in "+app+"\n") {
 		t.Fatalf("install.sh: %v\n%s", err, out)
 	}
 	installed("1.0.0")
 
-	// Again, the newer version replaces it, with the script of either.
-	publish("1.1.0")
+	// Again, the newer version replaces it, with the script of either: the
+	// build of the Mac's architecture comes before the universal one, and
+	// a shell under Rosetta on Apple silicon installs arm64's too.
+	publish("1.1.0", "darwin-arm64")
+	machine, translated = "x86_64", "1"
+	if out, err := run(); err != nil || !strings.HasSuffix(out, "Installed My App 1.1.0 in "+app+"\n") {
+		t.Fatalf("install.sh under Rosetta: %v\n%s", err, out)
+	}
+	installed("1.1.0")
+	machine, translated = "arm64", "0"
+	if out, err := run(); err != nil || !strings.HasSuffix(out, "Installed My App 1.1.0 in "+app+"\n") {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	installed("1.1.0")
+	// An Intel Mac has no build of its own but the universal one.
+	machine = "x86_64"
+	if out, err := run(); err != nil || !strings.Contains(out, "Downloading My App 1.0.0") {
+		t.Fatalf("install.sh on an Intel Mac: %v\n%s", err, out)
+	}
+	installed("1.0.0")
+	machine = "arm64"
 	if out, err := run(); err != nil || !strings.HasSuffix(out, "Installed My App 1.1.0 in "+app+"\n") {
 		t.Fatalf("install.sh: %v\n%s", err, out)
 	}
@@ -434,7 +469,7 @@ func TestInstallScriptMacOS(t *testing.T) {
 
 	// An archive other than the one signed is refused, and the installed
 	// version stays.
-	archive := filepath.Join(served, "my-app-1.1.0-darwin-universal.tar.gz")
+	archive := filepath.Join(served, "my-app-1.1.0-darwin-arm64.tar.gz")
 	good, _ := os.ReadFile(archive)
 	bad := slices.Clone(good)
 	bad[len(bad)/2] ^= 1
@@ -451,7 +486,7 @@ func TestInstallScriptMacOS(t *testing.T) {
 	_, other, _ := ed25519.GenerateKey(nil)
 	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(other))
 	c.Updates.PublicKey = base64.StdEncoding.EncodeToString(other.Public().(ed25519.PublicKey))
-	publish("1.2.0")
+	publish("1.2.0", "darwin-arm64")
 	if out, err := run(); err == nil || !strings.Contains(out, "is not signed with the key of My App") {
 		t.Errorf("another key: %v\n%s", err, out)
 	}

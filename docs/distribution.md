@@ -515,7 +515,8 @@ irm https://github.com/me/my-app/releases/latest/download/install.ps1 | iex
 ```
 
 On macOS, `install.sh` downloads the archive that the update manifest of
-`darwin-universal`, else of the Mac's architecture, names, checks its size
+the Mac's architecture, else of `darwin-universal`, names (Apple silicon's,
+`darwin-arm64`, also from a shell under Rosetta), checks its size
 and its Ed25519 signature against `updates.publicKey`, as the app's
 updater does (macOS has no tool for Ed25519 signatures, so the script
 hashes with `openssl` and `shasum` and does the arithmetic of the curve in
