@@ -154,7 +154,10 @@ type WindowOptions struct {
 	CornerRadius int
 	// Opacity of the window between 0 and 1 (default 1).
 	Opacity float64
-	// Parent makes this window a child window that stays on top of it.
+	// Parent makes this window a child window that stays on top of it
+	// and closes with it. It can go to any display. On macOS it is
+	// ordered above its parent whenever the parent comes in front, and
+	// hides while the parent is minimized or hidden.
 	Parent *Window
 	// Modal makes a child window modal to its Parent.
 	Modal bool

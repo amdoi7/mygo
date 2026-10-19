@@ -69,6 +69,17 @@ func TestOnScreen(handle uintptr) bool {
 	return sendInt(id(handle), "occlusionState")&occlusionStateVisible != 0
 }
 
+// TestWindowOrder returns the app's windows on screen, front to back.
+func TestWindowOrder() []uintptr {
+	var order []uintptr
+	withPool(func() {
+		for _, w := range arrayItems(send(theBackend.app, "orderedWindows")) {
+			order = append(order, uintptr(w))
+		}
+	})
+	return order
+}
+
 // TestEndSheet ends the sheet attached to a window as if its first button
 // was clicked, and reports whether there was one.
 func TestEndSheet(handle uintptr) bool {

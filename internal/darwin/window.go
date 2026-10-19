@@ -70,6 +70,13 @@ type window struct {
 	// resolved again when the appearance changes (fillSystemBacking).
 	systemBacking bool
 	parent        *window
+	// hiddenWithParent tells that a child window was ordered out as its
+	// parent hid or miniaturized (hideChildren), at hiddenRank among its
+	// siblings, front to back, to show again with it; orderPending that
+	// orderChildrenLater posted the ordering of the window's children.
+	hiddenWithParent bool
+	hiddenRank       int
+	orderPending     bool
 	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
 	// flyoutSize.
 	flyout     platform.Flyout
@@ -659,10 +666,7 @@ func (w *window) Show() {
 		send(w.parent.win, "beginSheet:completionHandler:", uintptr(w.win), 0)
 		return
 	}
-	send(w.win, "makeKeyAndOrderFront:", 0)
-	if w.parent != nil && !w.parent.closed {
-		send(w.parent.win, "addChildWindow:ordered:", uintptr(w.win), 1)
-	}
+	w.showAboveParent(true)
 	if !w.opts.Panel {
 		send(w.b.app, "activateIgnoringOtherApps:", 1)
 	}
@@ -823,10 +827,7 @@ func (w *window) ShowInactive() {
 		w.showFlyout(false)
 		return
 	}
-	send(w.win, "orderFrontRegardless")
-	if w.parent != nil && !w.parent.closed {
-		send(w.parent.win, "addChildWindow:ordered:", uintptr(w.win), 1)
-	}
+	w.showAboveParent(false)
 }
 
 func (w *window) Hide() {
@@ -843,7 +844,9 @@ func (w *window) Hide() {
 		send(w.parent.win, "endSheet:", uintptr(w.win))
 		return
 	}
+	w.hiddenWithParent = false
 	send(w.win, "orderOut:", 0)
+	w.hideChildren()
 }
 
 func (w *window) IsVisible() bool {
@@ -864,6 +867,7 @@ func (w *window) Focus() {
 		w.Show() // the key window only when it takes the keyboard
 		return
 	}
+	w.hiddenWithParent = false
 	send(w.win, "makeKeyAndOrderFront:", 0)
 	if !w.opts.Panel {
 		send(w.b.app, "activateIgnoringOtherApps:", 1)
@@ -1553,6 +1557,7 @@ func registerWindowClasses() {
 		}
 	}
 	classDef("MyGoWindow", "NSWindow", nil, []objc.MethodDef{
+		method("orderWindow:relativeTo:", orderWindowRelativeTo("MyGoWindow")),
 		method("canBecomeKeyWindow", func(self id, _ objc.SEL) bool { return true }),
 		method("canBecomeMainWindow", func(self id, _ objc.SEL) bool { return true }),
 		method("selectKeyViewFollowingView:", selectKeyView("MyGoWindow", false)),
@@ -1562,6 +1567,7 @@ func registerWindowClasses() {
 	// A panel (WindowOptions.Panel) takes the keyboard, without
 	// activating the app, and is never the main window.
 	classDef("MyGoPanel", "NSPanel", nil, []objc.MethodDef{
+		method("orderWindow:relativeTo:", orderWindowRelativeTo("MyGoPanel")),
 		method("canBecomeKeyWindow", func(self id, _ objc.SEL) bool { return true }),
 		method("canBecomeMainWindow", func(self id, _ objc.SEL) bool { return false }),
 		// NSPanel closes on an Escape its content leaves (cancelOperation:),
@@ -1639,6 +1645,7 @@ func registerWindowClasses() {
 			}),
 			method("windowDidBecomeKey:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
+					w.orderChildrenLater()
 					w.h.Focused()
 					w.surfaceKeyChanged(true)
 				}
@@ -1684,11 +1691,13 @@ func registerWindowClasses() {
 			}),
 			method("windowDidMiniaturize:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
+					w.hideChildren()
 					w.h.Minimized()
 				}
 			}),
 			method("windowDidDeminiaturize:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
+					w.orderChildrenLater()
 					w.h.Restored()
 				}
 			}),
