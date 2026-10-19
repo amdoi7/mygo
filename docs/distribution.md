@@ -44,8 +44,8 @@ when cross-compiling, set `CC` to a suitable cross compiler.
 
 | Platform | In `build/<os>-<arch>/` |
 |---|---|
-| macOS | `My App.app`, signed, and `My App 0.1.0 arm64.dmg` (`My App 0.1.0.dmg` for `darwin/universal`) |
-| Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0 amd64.exe` |
+| macOS | `My App.app`, signed, and `My App 0.1.0 arm64.dmg` (`My App 0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
+| Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0 amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
 | Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the Debian package `my-app_0.1.0_amd64.deb` |
 
 Other flags: `-debug` keeps development features such as the inspector,
@@ -491,6 +491,53 @@ of the new version, so a version that adds URL schemes or file types gets
 them. The Debian package suits people who want the system's package manager to
 update the app; `install.sh` suits the others, and is the Linux install
 that updates itself.
+
+### Install scripts for macOS and Windows
+
+With [updates](updates.md), the same `install.sh` installs the app on
+macOS, and Windows builds get `install.ps1`, so one line installs the app
+on each system:
+
+```sh
+curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
+```
+
+```powershell
+irm https://github.com/me/my-app/releases/latest/download/install.ps1 | iex
+```
+
+On macOS, `install.sh` downloads the archive that the update manifest of
+`darwin-universal`, else of the Mac's architecture, names, checks its size
+and its Ed25519 signature against `updates.publicKey`, as the app's
+updater does (macOS has no tool for Ed25519 signatures, so the script
+hashes with `openssl` and `shasum` and does the arithmetic of the curve in
+JavaScript for Automation), quits the app if it runs, and replaces the
+bundle in `/Applications`, or in `~/Applications` when the user cannot
+write to `/Applications` or the app is already there, then opens it. It
+never asks for root, and an app of the same name with another bundle
+identifier is left alone. `curl` sets no quarantine, so the app opens
+without the prompt of Gatekeeper for downloaded apps.
+`sh install.sh --uninstall` removes the app and keeps its settings and
+data.
+
+`install.ps1` runs in Windows PowerShell 5.1 and PowerShell 7. It
+downloads the installer of the latest version for the PC's architecture
+(`amd64` or `arm64`), checks its SHA-256 against `SHA256SUMS`, quits the
+app if it runs, runs the installer silently (`/S`) in the folder of the
+installed version, and opens the app. The installer uninstalls it as
+usual, from Settings > Apps.
+
+Builds with updates write `SHA256SUMS`, the SHA-256 of the installers,
+archives and scripts in the format of `sha256sum`, to the output
+directory, which `-upload` publishes with them, merging the lines of
+earlier uploads of other platforms to the same GitHub release. It names
+the files as the build does; GitHub turns the spaces of uploaded names
+into dots, which `install.ps1` follows. With `updates.url`, publish the
+scripts and `SHA256SUMS` next to the manifests.
+
+For testing, `MY_APP_DOWNLOAD_URL` (the slug of the app in capitals) is
+where both scripts download from instead, `MY_APP_INSTALL_DIR` the folder
+of the app on macOS, and `MY_APP_NO_OPEN=1` leaves the app closed.
 
 ## Languages
 

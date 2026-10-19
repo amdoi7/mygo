@@ -542,7 +542,7 @@ func reservedNames(c *Config, goos string) []string {
 		}
 		return []string{bundleIcon}
 	case "windows":
-		return []string{c.executableName() + ".exe"}
+		return []string{c.executableName() + ".exe", installPS1Name}
 	}
 	name := slugify(c.executableName())
 	return []string{name, name + ".desktop", name + ".png", name + ".xml", installScriptName}

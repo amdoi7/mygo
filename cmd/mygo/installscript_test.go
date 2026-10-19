@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -341,5 +343,173 @@ cat "$file"
 	}
 	if out, err := exec.Command(filepath.Join(home, ".local", "my-app.app", "my-app")).Output(); err != nil || string(out) != "1.1.0\n" {
 		t.Errorf("my-app printed %q, %v", out, err)
+	}
+}
+
+func TestInstallScriptMacOS(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("installs on macOS")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("install.sh refuses to install for root")
+	}
+	home := filepath.Join(t.TempDir(), "Jane Doe")
+	apps := filepath.Join(home, "Applications")
+	t.Setenv("HOME", home)
+	t.Setenv("MY_APP_INSTALL_DIR", apps)
+	t.Setenv("MY_APP_NO_OPEN", "1")
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(priv))
+	served := t.TempDir()
+	srv := httptest.NewServer(http.FileServer(http.Dir(served)))
+	defer srv.Close()
+	none := 0
+	c := &Config{root: t.TempDir(), Name: "My App", Identifier: "com.example.mygo-install-test",
+		Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: srv.URL, Deltas: &none}}
+	c.applyDefaults()
+	// publish builds the bundle of version, a script printing it, and
+	// serves its archive and manifest.
+	publish := func(version string) {
+		t.Helper()
+		c.Version = version
+		stage := t.TempDir()
+		bin := filepath.Join(stage, "exe")
+		os.WriteFile(bin, []byte("#!/bin/sh\necho "+version+"\n"), 0o755)
+		app, err := writeBundle(c, stage, bin, []byte("icns"), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(app, "Contents", "Resources", "only-"+version), nil, 0o644)
+		if _, err := writeArchive(c, stage, "darwin-universal", []string{"My App.app"}); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"my-app-" + version + "-darwin-universal.tar.gz", "update-darwin-universal.json"} {
+			b, err := os.ReadFile(filepath.Join(stage, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(served, name), b, 0o644)
+		}
+	}
+	script := filepath.Join(t.TempDir(), "install.sh")
+	run := func(args ...string) (string, error) {
+		out, err := exec.Command("sh", append([]string{script}, args...)...).CombinedOutput()
+		return string(out), err
+	}
+	app := filepath.Join(apps, "My App.app")
+	installed := func(version string) {
+		t.Helper()
+		if out, err := exec.Command(filepath.Join(app, "Contents", "MacOS", "My App")).Output(); err != nil || string(out) != version+"\n" {
+			t.Errorf("the app printed %q, %v, want %s", out, err, version)
+		}
+		entries, _ := os.ReadDir(filepath.Join(app, "Contents", "Resources"))
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "only-") && e.Name() != "only-"+version {
+				t.Errorf("%s of another version stayed", e.Name())
+			}
+		}
+		if entries, _ := os.ReadDir(apps); len(entries) != 1 {
+			t.Errorf("%s holds %v", apps, entries)
+		}
+	}
+
+	publish("1.0.0")
+	os.WriteFile(script, []byte(installScript(c)), 0o755)
+	if out, err := run(); err != nil || !strings.Contains(out, "Downloading My App 1.0.0") || !strings.HasSuffix(out, "Installed My App 1.0.0 in "+app+"\n") {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	installed("1.0.0")
+
+	// Again, the newer version replaces it, with the script of either.
+	publish("1.1.0")
+	if out, err := run(); err != nil || !strings.HasSuffix(out, "Installed My App 1.1.0 in "+app+"\n") {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	installed("1.1.0")
+
+	// An archive other than the one signed is refused, and the installed
+	// version stays.
+	archive := filepath.Join(served, "my-app-1.1.0-darwin-universal.tar.gz")
+	good, _ := os.ReadFile(archive)
+	bad := slices.Clone(good)
+	bad[len(bad)/2] ^= 1
+	os.WriteFile(archive, bad, 0o644)
+	if out, err := run(); err == nil || !strings.Contains(out, "is not signed with the key of My App: not installing it") {
+		t.Errorf("a tampered archive: %v\n%s", err, out)
+	}
+	os.WriteFile(archive, append(slices.Clone(good), 0), 0o644)
+	if out, err := run(); err == nil || !strings.Contains(out, "does not have the size of the manifest") {
+		t.Errorf("a longer archive: %v\n%s", err, out)
+	}
+	installed("1.1.0")
+	// Signed with another key.
+	_, other, _ := ed25519.GenerateKey(nil)
+	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(other))
+	c.Updates.PublicKey = base64.StdEncoding.EncodeToString(other.Public().(ed25519.PublicKey))
+	publish("1.2.0")
+	if out, err := run(); err == nil || !strings.Contains(out, "is not signed with the key of My App") {
+		t.Errorf("another key: %v\n%s", err, out)
+	}
+	installed("1.1.0")
+
+	// Another app of the same name is left alone.
+	c.Updates.PublicKey = base64.StdEncoding.EncodeToString(pub)
+	other2 := *c
+	other2.Identifier = "com.example.other"
+	os.WriteFile(script, []byte(installScript(&other2)), 0o755)
+	if out, err := run("--uninstall"); err == nil || !strings.Contains(out, "My App is not installed in "+apps) {
+		t.Errorf("uninstalling another app: %v\n%s", err, out)
+	}
+	installed("1.1.0")
+
+	// Uninstalling removes the app, and keeps its settings.
+	os.WriteFile(script, []byte(installScript(c)), 0o755)
+	settings := filepath.Join(home, "Library", "Application Support", c.Identifier, "settings.json")
+	os.MkdirAll(filepath.Dir(settings), 0o755)
+	os.WriteFile(settings, []byte("{}"), 0o644)
+	if out, err := run("--uninstall"); err != nil || !strings.Contains(out, "Uninstalled My App. Its settings and data are still in place.") {
+		t.Errorf("install.sh --uninstall: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(app); err == nil {
+		t.Error("the app is still there")
+	}
+	if _, err := os.Stat(settings); err != nil {
+		t.Error(err)
+	}
+	if out, err := run("--uninstall"); err == nil {
+		t.Errorf("uninstalling twice succeeded:\n%s", out)
+	}
+}
+
+// TestInstallScriptVerify checks install.sh's Ed25519 verification on macOS
+// against Go's signatures.
+func TestInstallScriptVerify(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("verifies on macOS")
+	}
+	dir := t.TempDir()
+	for i := range 8 {
+		pub, priv, _ := ed25519.GenerateKey(nil)
+		c := &Config{Name: "App", Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: "https://example.com"}}
+		script := strings.TrimSuffix(installScript(c), "main \"$@\"\n") + "work=\"$(mktemp -d)\"\nif verify \"$1\" \"$2\"; then echo ok; else echo bad; fi\nrm -rf \"$work\"\n"
+		path := filepath.Join(dir, "verify.sh")
+		os.WriteFile(path, []byte(script), 0o755)
+		file := filepath.Join(dir, "file")
+		data := []byte(fmt.Sprint("file ", i))
+		os.WriteFile(file, data, 0o644)
+		sum := sha256.Sum256(data)
+		sig := update.Sign(priv, sum[:])
+		raw, _ := base64.StdEncoding.DecodeString(sig)
+		flipped := slices.Clone(raw)
+		flipped[i*7%64] ^= 1 << (i % 8)
+		for _, tc := range []struct {
+			sig  string
+			want string
+		}{{sig, "ok"}, {base64.StdEncoding.EncodeToString(flipped), "bad"}, {"", "bad"}, {"not base64", "bad"}} {
+			out, err := exec.Command("sh", path, file, tc.sig).CombinedOutput()
+			if err != nil || string(out) != tc.want+"\n" {
+				t.Errorf("verifying %q: %v %q, want %s", tc.sig, err, out, tc.want)
+			}
+		}
 	}
 }

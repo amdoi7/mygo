@@ -153,6 +153,15 @@ WebAssembly, named by its content: a static site, to serve from anywhere.`)
 			return err
 		}
 	}
+	if c.Updates != nil {
+		sums, err := writeChecksums(c.path(c.Out), built)
+		if err != nil {
+			return err
+		}
+		if sums != "" {
+			built = append(built, sums)
+		}
+	}
 	con.println(buildSummary(c, built, time.Since(started)))
 	if *upload {
 		return publish(c, built)
@@ -374,8 +383,17 @@ func buildPlatform(c *Config, goos, goarch string, opts buildOptions) ([]string,
 		return nil, err
 	}
 	artifacts = append(artifacts, files...)
-	if goos == "linux" {
+	// install.sh installs on Linux, and with updates on macOS; install.ps1
+	// runs the Windows installer of the latest version.
+	if goos == "linux" || goos == "darwin" && c.Updates != nil {
 		script, err := writeInstallScript(c, stage)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, script)
+	}
+	if goos == "windows" && c.Updates != nil && slices.ContainsFunc(artifacts, func(a string) bool { return filepath.Base(a) == installerFileName(c, goarch) }) {
+		script, err := writeInstallPS1(c, stage)
 		if err != nil {
 			return nil, err
 		}

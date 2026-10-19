@@ -55,8 +55,8 @@ func uploads(artifacts []string) (files, manifests []string, err error) {
 		switch {
 		case strings.HasPrefix(name, "update-") && strings.HasSuffix(name, ".json"):
 			manifests = append(manifests, a)
-		case name == installScriptName:
-			// The same script for every Linux target.
+		case name == installScriptName, name == installPS1Name, name == checksumsName:
+			// The same script for every target of a system.
 			if !slices.ContainsFunc(files, func(f string) bool { return filepath.Base(f) == name }) {
 				files = append(files, a)
 			}
@@ -93,7 +93,13 @@ func publishGitHub(c *Config, artifacts []string) error {
 	if c.Updates.tagged() {
 		latest = " --latest=false"
 	}
-	if exec.Command(gh, "release", "view", tag, "--repo", repo).Run() != nil {
+	if exec.Command(gh, "release", "view", tag, "--repo", repo).Run() == nil {
+		// The release may hold the files of other builds, as of another
+		// platform, whose checksums stay.
+		if err := mergeReleaseChecksums(gh, repo, tag, files); err != nil {
+			return err
+		}
+	} else {
 		notes, _ := c.releaseNotes()
 		t := con.start("Creating the draft release " + tag + " of " + repo)
 		args := []string{"release", "create", tag, "--repo", repo, "--draft", "--title", tag, "--notes", notes}
@@ -120,6 +126,28 @@ func publishGitHub(c *Config, artifacts []string) error {
 	}
 	logf("Uploaded to the release %s of %s; publish it when every platform is there:\n  gh release edit %s --repo %s --draft=false%s", tag, repo, tag, repo, latest)
 	return nil
+}
+
+// mergeReleaseChecksums merges the SHA256SUMS of the release tag, if it
+// has one, into the SHA256SUMS among files.
+func mergeReleaseChecksums(gh, repo, tag string, files []string) error {
+	i := slices.IndexFunc(files, func(f string) bool { return filepath.Base(f) == checksumsName })
+	if i < 0 {
+		return nil
+	}
+	dir, err := os.MkdirTemp("", "mygo-checksums-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	if exec.Command(gh, "release", "download", tag, "--repo", repo, "--pattern", checksumsName, "--dir", dir).Run() != nil {
+		return nil // none yet
+	}
+	earlier, err := os.ReadFile(filepath.Join(dir, checksumsName))
+	if err != nil {
+		return nil
+	}
+	return mergeChecksums(files[i], earlier)
 }
 
 // publishS3 uploads the artifacts of a build to the bucket of updates.s3,
@@ -155,7 +183,7 @@ func uploadHeader(name string) http.Header {
 		typ = "application/octet-stream"
 	}
 	h := http.Header{"Content-Type": {typ}}
-	if name == installScriptName || strings.HasPrefix(name, "update-") && strings.HasSuffix(name, ".json") {
+	if name == installScriptName || name == installPS1Name || name == checksumsName || strings.HasPrefix(name, "update-") && strings.HasSuffix(name, ".json") {
 		h.Set("Cache-Control", "no-cache")
 	}
 	return h
@@ -168,6 +196,7 @@ var contentTypes = map[string]string{
 	".gz":   "application/gzip",
 	".json": "application/json",
 	".sh":   "text/plain; charset=utf-8", // readable in a browser before piping it to sh
+	".ps1":  "text/plain; charset=utf-8",
 }
 
 // uploadNames names the files of an upload.
