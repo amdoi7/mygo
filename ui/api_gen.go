@@ -460,6 +460,28 @@ func (_handle *Context) SetTheme(t *Theme) {
 	_ctx.SetTheme(t)
 }
 
+// SetZoom zooms the window's content by z, as a browser zooms a page: the
+// view is laid out in a window 1/z its size and shown z times larger,
+// drawn at the screen's resolution times z, so that text, icons, vectors
+// and images stay as sharp as at that size natively, not a picture of
+// the window scaled up. 1 shows the content at its size; the zoom
+// stays until set again, and is clamped to between 0.25 and 5. A frame
+// that sets another builds again at the new size before it shows.
+//
+// What the view sees is zoomed: Size, TitleBar, Bounds and every length
+// are in the content's DIPs, z of them to the window's. The pointer, text
+// input, input methods, accessibility, context menus, drags and web views
+// follow it.
+//
+//	c.SetZoom(app.zoom) // 1.25 for 125%
+func (_handle *Context) SetZoom(z float32) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return
+	}
+	_ctx.SetZoom(z)
+}
+
 // Shortcut reports whether the key with exactly the modifiers mods was
 // pressed, wherever the keyboard focus is, unless a focused element
 // handled it first: a focused button or link takes Enter and Space, and a
@@ -576,6 +598,15 @@ func (_handle *Context) WriteClipboard(s string) {
 		return
 	}
 	_ctx.WriteClipboard(s)
+}
+
+// Zoom returns the zoom SetZoom set, 1 for none.
+func (_handle *Context) Zoom() float32 {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return 0
+	}
+	return _ctx.Zoom()
 }
 
 // Accordion creates sections, one above the other in a bordered box, that
@@ -2991,7 +3022,8 @@ func (_handle Element) BottomPercent(p float32) Element {
 }
 
 // Bounds returns the previous frame's transformed bounding rectangle in
-// window DIPs; it is empty for an element the previous frame lacked.
+// window DIPs, the content's when zoomed (Context.SetZoom); it is empty
+// for an element the previous frame lacked.
 // LayoutBounds returns its box before visual transforms.
 func (_handle Element) Bounds() Rect {
 	_node := _handle.node()

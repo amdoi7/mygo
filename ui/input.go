@@ -21,6 +21,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// Input, which the next frame builds even out of sight.
 		rt.input = true
 	}
+	// The window's DIPs, zoomed, are the content's.
+	rt.fromWindow(&ev)
 	x, y := float32(ev.X), float32(ev.Y)
 	if ev.Kind == platform.PointerDown || ev.Kind == platform.WebViewPress {
 		// A press is of no element until countPress finds it one.
@@ -1013,13 +1015,13 @@ func (rt *engine) updateTextInput() {
 			t.Caret = bounds
 		} else {
 			r := transformRect(s.world, Rect{X: s.x, Y: s.y, W: 1, H: s.h})
-			t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
+			t.Caret = rt.toWindow(platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)})
 		}
 	} else if s != nil && s.editor == nil && s.input != nil && s.takesText && rt.windowFocus() {
 		// An element taking text itself: no text around the caret.
 		t.Active, t.NoInputMethod = true, s.noIME
 		r := transformRect(s.world, Rect{s.x + s.caret.X, s.y + s.caret.Y, s.caret.W, s.caret.H})
-		t.Caret = platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)}
+		t.Caret = rt.toWindow(platform.RectF{X: float64(r.X), Y: float64(r.Y), W: float64(r.W), H: float64(r.H)})
 	}
 	if t != rt.ime.state {
 		if t.Client != rt.ime.state.Client {
