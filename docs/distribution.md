@@ -461,7 +461,9 @@ the user without root: the app in `~/.local/my-app.app`, where it can
 types, and with `linux.command` that command in `~/.local/bin`, unless
 another program is there. With
 [updates](updates.md) configured, it downloads the latest version, which
-the update manifest of the machine names, so one line installs the app:
+the update manifest of the machine names, and checks its size and its
+Ed25519 signature against `updates.publicKey`, as the app's updater does,
+before installing it, so one line installs the app:
 
 ```sh
 curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
@@ -470,6 +472,12 @@ curl -fsSL https://github.com/me/my-app/releases/latest/download/install.sh | sh
 With a [`tagPrefix`](updates.md#set-up) other than `v`, the script of any
 release, such as `…/releases/download/desktop-v1.2.0/install.sh`, installs
 the newest release tagged with the prefix.
+
+It checks the signature with `openssl pkeyutl -rawin`, which OpenSSL 3.0
+and later have (Debian 12, Ubuntu 22.04, Fedora 36, RHEL 9 and later).
+Without it, as with OpenSSL 1.1.1, it downloads nothing and says so; the
+archive can then be downloaded from the release and given to the script,
+which installs an archive it is given, or finds next to it, unchecked.
 
 `-upload` publishes it with the archives; with `updates.url`, publish it
 next to the manifests. Next to the archive of its version, as in

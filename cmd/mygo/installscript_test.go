@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/internal/update"
 )
@@ -158,6 +161,7 @@ func TestInstallScript(t *testing.T) {
 			t.Skip("downloading needs curl or wget")
 		}
 	}
+	opensslEd25519(t)
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(priv))
 	served := t.TempDir()
@@ -293,6 +297,7 @@ cat "$file"
 	served := t.TempDir()
 	t.Setenv("SERVED", served)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	opensslEd25519(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", "")
@@ -511,5 +516,274 @@ func TestInstallScriptVerify(t *testing.T) {
 				t.Errorf("verifying %q: %v %q, want %s", tc.sig, err, out, tc.want)
 			}
 		}
+	}
+}
+
+// verifyScript writes install.sh of c without its last line, running
+// instead the shell code of run, and returns its path.
+func verifyScript(t *testing.T, c *Config, run string) string {
+	t.Helper()
+	script := strings.TrimSuffix(installScript(c), "main \"$@\"\n") + "work=\"$(mktemp -d)\"\n" + run + "\nrm -rf \"$work\"\n"
+	path := filepath.Join(t.TempDir(), "verify.sh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// opensslEd25519 makes sure that the openssl of $PATH checks Ed25519
+// signatures, as install.sh does on Linux, putting that of Homebrew first
+// when the system's has none (LibreSSL on macOS), else skips the test.
+func opensslEd25519(t *testing.T) {
+	t.Helper()
+	check := verifyScript(t, &Config{Name: "App"}, "has_ed25519")
+	for _, dir := range []string{"", "/opt/homebrew/opt/openssl@3/bin", "/usr/local/opt/openssl@3/bin"} {
+		if dir != "" {
+			if _, err := os.Stat(filepath.Join(dir, "openssl")); err != nil {
+				continue
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		}
+		if exec.Command("sh", check).Run() == nil {
+			return
+		}
+	}
+	t.Skip("no openssl that checks Ed25519 signatures (OpenSSL 3.0 or later)")
+}
+
+// TestInstallScriptVerifyOpenSSL checks install.sh's Ed25519 verification
+// with openssl, as on Linux, against Go's signatures.
+func TestInstallScriptVerifyOpenSSL(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("runs install.sh")
+	}
+	opensslEd25519(t)
+	dir := t.TempDir()
+	_, other, _ := ed25519.GenerateKey(nil)
+	for i := range 8 {
+		pub, priv, _ := ed25519.GenerateKey(nil)
+		c := &Config{Name: "App", Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: "https://example.com"}}
+		path := verifyScript(t, c, `if verify_openssl "$1" "$2"; then echo ok; else echo bad; fi`)
+		file := filepath.Join(dir, "file")
+		data := []byte(fmt.Sprint("file ", i))
+		os.WriteFile(file, data, 0o644)
+		sum := sha256.Sum256(data)
+		sig := update.Sign(priv, sum[:])
+		raw, _ := base64.StdEncoding.DecodeString(sig)
+		flipped := slices.Clone(raw)
+		flipped[i*7%64] ^= 1 << (i % 8)
+		for _, tc := range []struct {
+			sig  string
+			want string
+		}{
+			{sig, "ok"},
+			{base64.StdEncoding.EncodeToString(flipped), "bad"},
+			{update.Sign(other, sum[:]), "bad"},
+			{update.Sign(priv, data), "bad"}, // of the data, not its digest
+			{"", "bad"},
+			{"not base64", "bad"},
+			{sig[:len(sig)-4], "bad"},
+		} {
+			out, err := exec.Command("sh", path, file, tc.sig).CombinedOutput()
+			if err != nil || string(out) != tc.want+"\n" {
+				t.Errorf("verifying %q: %v %q, want %s", tc.sig, err, out, tc.want)
+			}
+		}
+	}
+	// A key that is not 32 bytes of base64.
+	c := &Config{Name: "App", Updates: &Updates{PublicKey: "AAAA", URL: "https://example.com"}}
+	if out, _ := exec.Command("sh", verifyScript(t, c, `if verify_openssl "$1" "$2"; then echo ok; else echo bad; fi`), filepath.Join(dir, "file"), "").CombinedOutput(); string(out) != "bad\n" {
+		t.Errorf("verifying with a bad key: %q", out)
+	}
+}
+
+// TestInstallScriptNoEd25519 checks that install.sh on Linux downloads
+// nothing when its openssl cannot check Ed25519 signatures.
+func TestInstallScriptNoEd25519(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("runs install.sh")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("install.sh refuses to install for root")
+	}
+	bin := t.TempDir()
+	log := filepath.Join(t.TempDir(), "downloads")
+	for name, script := range map[string]string{
+		"uname": "#!/bin/sh\ncase \"$1\" in -s) echo Linux ;; -m) echo x86_64 ;; esac\n",
+		// An openssl that cannot check Ed25519 signatures, as before 3.0.
+		"openssl": "#!/bin/sh\necho 'pkeyutl: unsupported algorithm' >&2\nexit 1\n",
+		"curl":    "#!/bin/sh\necho \"$@\" >>\"$DOWNLOADS\"\nexit 22\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOWNLOADS", log)
+	t.Setenv("HOME", t.TempDir())
+	pub, _, _ := ed25519.GenerateKey(nil)
+	c := &Config{root: t.TempDir(), Name: "My App", Version: "1.0.0",
+		Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: "https://example.com/my-app"}}
+	script, err := writeInstallScript(c, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("sh", script).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "checking the signature of My App needs OpenSSL 3.0 or later") {
+		t.Errorf("without Ed25519, install.sh printed %v:\n%s", err, out)
+	}
+	if b, err := os.ReadFile(log); err == nil {
+		t.Errorf("without Ed25519, install.sh downloaded:\n%s", b)
+	}
+}
+
+// TestInstallScriptLinux runs install.sh in Linux containers, which
+// download the latest version from a server of the test: it installs a
+// signed archive, and refuses one with a flipped byte, another size or
+// another key, and, with OpenSSL 1.1.1, whose pkeyutl has no -rawin, any.
+// It needs Docker, whose containers reach the host at host.docker.internal.
+// MYGO_TEST_LINUX_IMAGES, separated by spaces, are the images to run in
+// instead of Debian 13 (OpenSSL 3.5) and 11 (OpenSSL 1.1.1), with curl;
+// one whose name ends in ! has an openssl expected to check no Ed25519.
+func TestInstallScriptLinux(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs Docker")
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("runs Docker")
+	}
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		t.Skip("Docker is not running")
+	}
+	images := strings.Fields(os.Getenv("MYGO_TEST_LINUX_IMAGES"))
+	if len(images) == 0 {
+		images = []string{"buildpack-deps:trixie-curl", "buildpack-deps:bullseye-curl!"}
+	}
+
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	_, other, _ := ed25519.GenerateKey(nil)
+	served := t.TempDir()
+	l, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(http.FileServer(http.Dir(served)))
+	srv.Listener.Close()
+	srv.Listener = l
+	srv.Start()
+	defer srv.Close()
+	url := "http://host.docker.internal:" + strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
+	none := 0
+	c := &Config{root: t.TempDir(), Name: "My App", Version: "1.1.0",
+		Updates: &Updates{PublicKey: base64.StdEncoding.EncodeToString(pub), URL: url, Deltas: &none}}
+	// publish serves the archives of a fake app of version, signed with key,
+	// for both architectures, and install.sh with that key.
+	publish := func(version string, key ed25519.PrivateKey) {
+		t.Helper()
+		t.Setenv("MYGO_UPDATER_PRIVATE_KEY", base64.StdEncoding.EncodeToString(key))
+		c.Updates.PublicKey = base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey))
+		c.Version = version
+		for _, target := range []string{"linux-amd64", "linux-arm64"} {
+			stage := filepath.Join(t.TempDir(), target)
+			os.MkdirAll(stage, 0o755)
+			if err := os.WriteFile(filepath.Join(stage, "my-app"), []byte("#!/bin/sh\necho "+version+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := writeArchive(c, stage, target, []string{"my-app"}); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"my-app-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"} {
+				b, err := os.ReadFile(filepath.Join(stage, name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				os.WriteFile(filepath.Join(served, name), b, 0o644)
+			}
+		}
+		if _, err := writeInstallScript(c, served); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// tamper changes the served archives of version.
+	tamper := func(version string, change func([]byte) []byte) {
+		for _, target := range []string{"linux-amd64", "linux-arm64"} {
+			path := filepath.Join(served, "my-app-"+version+"-"+target+".tar.gz")
+			b, _ := os.ReadFile(path)
+			os.WriteFile(path, change(b), 0o644)
+		}
+	}
+	// The script downloads install.sh, installs, and prints what the
+	// installed app prints, as a user other than root.
+	const steps = `set -e
+curl -fsSL "$MY_APP_DOWNLOAD_URL/install.sh" >/tmp/install.sh
+status=0
+sh /tmp/install.sh || status=$?
+echo "installed: $("$HOME/.local/my-app.app/my-app" 2>/dev/null || echo none)"
+exit $status
+`
+	for _, image := range images {
+		image, unsupported := strings.CutSuffix(image, "!")
+		t.Run(image, func(t *testing.T) {
+			if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
+				if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err != nil {
+					t.Skipf("docker pull %s: %v\n%s", image, err, out)
+				}
+			}
+			home := "/tmp/home"
+			container := "mygo-install-test-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+			started, err := exec.Command("docker", "run", "-d", "--rm", "--name", container, "--user", "1000:1000",
+				"--add-host", "host.docker.internal:host-gateway", "-e", "HOME="+home, "-e", "MY_APP_DOWNLOAD_URL="+url,
+				image, "sleep", "600").CombinedOutput()
+			if err != nil {
+				t.Fatalf("docker run: %v\n%s", err, started)
+			}
+			defer exec.Command("docker", "rm", "-f", container).Run()
+			run := func() (string, error) {
+				out, err := exec.Command("docker", "exec", container, "sh", "-c", steps).CombinedOutput()
+				return string(out), err
+			}
+
+			publish("1.0.0", priv)
+			out, err := run()
+			if unsupported {
+				if err == nil || !strings.Contains(out, "checking the signature of My App needs OpenSSL 3.0 or later") || !strings.Contains(out, "installed: none") {
+					t.Errorf("without Ed25519: %v\n%s", err, out)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(out, "Downloading My App 1.0.0") || !strings.Contains(out, "installed: 1.0.0\n") {
+				t.Fatalf("install.sh: %v\n%s", err, out)
+			}
+			publish("1.1.0", priv)
+			if out, err := run(); err != nil || !strings.Contains(out, "installed: 1.1.0\n") {
+				t.Fatalf("install.sh: %v\n%s", err, out)
+			}
+
+			// What is not the signed archive is refused, and the installed
+			// version stays.
+			for _, tc := range []struct {
+				name   string
+				change func([]byte) []byte
+				key    ed25519.PrivateKey
+				want   string
+			}{
+				{"a flipped byte", func(b []byte) []byte { b[len(b)/2] ^= 1; return b }, priv, "is not signed with the key of My App: not installing it"},
+				{"another size", func(b []byte) []byte { return append(b, 0) }, priv, "does not have the size of the manifest: not installing it"},
+				{"another key", nil, other, "is not signed with the key of My App: not installing it"},
+			} {
+				publish("1.2.0", tc.key)
+				if tc.change != nil {
+					tamper("1.2.0", tc.change)
+				}
+				// install.sh with the key of the app.
+				c.Updates.PublicKey = base64.StdEncoding.EncodeToString(pub)
+				if _, err := writeInstallScript(c, served); err != nil {
+					t.Fatal(err)
+				}
+				if out, err := run(); err == nil || !strings.Contains(out, tc.want) || !strings.Contains(out, "installed: 1.1.0\n") {
+					t.Errorf("%s: %v\n%s", tc.name, err, out)
+				}
+			}
+		})
 	}
 }

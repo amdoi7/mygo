@@ -24,7 +24,10 @@ import (
 // unless the app shows no web page (linux.webview false). It installs the
 // archive it is given, else the one of its version next to it, else, with
 // updates, the latest version, which the manifest of the machine's target
-// names.
+// names, after checking its size and its Ed25519 signature against
+// updates.publicKey, as the app's updater does, with openssl pkeyutl
+// (OpenSSL 3.0 or later). Without such an openssl it downloads nothing and
+// says so: an archive given to it is not checked.
 //
 // On macOS it downloads the archive of the latest version that the manifest
 // of darwin-universal (else of the Mac's architecture) names, checks its
@@ -243,13 +246,20 @@ linux() {
 		else
 			manifest="${releases}update-$target.json"
 		fi
+		# Fail before downloading when nothing here checks Ed25519.
+		has_ed25519 || fail "checking the signature of $app_name needs OpenSSL 3.0 or later (the openssl command): install it, or download $name-<version>-$target.tar.gz and run sh install.sh with it"
 		fetch "$manifest" >"$work/update.json" || fail "could not download $manifest"
-		latest="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$work/update.json")"
-		url="$(sed -n 's/^  "url": "\(.*\)",$/\1/p' "$work/update.json")"
+		latest="$(field version)"
+		url="$(field url)"
+		size="$(field size)"
+		signature="$(field signature)"
 		[ -n "$url" ] || fail "$manifest names no archive"
+		[ -n "$size" ] && [ -n "$signature" ] || fail "$manifest names no signed archive"
 		echo "Downloading $app_name $latest"
 		archive="$work/$name.tar.gz"
 		fetch "$url" >"$archive" || fail "could not download $url"
+		[ "$(wc -c <"$archive" | tr -d ' ')" = "$size" ] || fail "$url does not have the size of the manifest: not installing it"
+		verify_openssl "$archive" "$signature" || fail "$url is not signed with the key of $app_name: not installing it"
 	fi
 	[ -f "$archive" ] || fail "no archive at $archive"
 	tar -tzf "$archive" >"$work/names" 2>/dev/null || fail "$archive is not a .tar.gz archive"
@@ -511,6 +521,37 @@ verify() {
 	} | shasum -a 512 | cut -c 1-128)" || return 1
 	verifier >"$work/verify.js"
 	[ "$(osascript -l JavaScript "$work/verify.js" "$key" "$(echo "$sig" | cut -c 1-64)" "$(echo "$sig" | cut -c 65-128)" "$k" </dev/null 2>/dev/null)" = ok ]
+}
+
+# verify_openssl checks, as verify does, that the archive $1 has the
+# Ed25519 signature $2 of its SHA-256 digest by the key of updates, with
+# OpenSSL 3.0 or later (pkeyutl -rawin), as on Linux. The key in PEM is the raw key
+# after the DER prefix of an Ed25519 public key (302a300506032b6570032100),
+# whose 12 bytes are 16 characters of base64.
+verify_openssl() {
+	printf '%s' "$public_key" | grep -Eq '^[A-Za-z0-9+/]{43}=$' || return 1
+	printf '%s' "$2" | grep -Eq '^[A-Za-z0-9+/]{86}==$' || return 1
+	openssl dgst -sha256 -binary <"$1" >"$work/digest" || return 1
+	ed25519_verify "MCowBQYDK2VwAyEA$public_key" "$2" "$work/digest"
+}
+
+# ed25519_verify checks with OpenSSL that the file $3 has the Ed25519
+# signature $2, in base64, by the public key $1, in base64 DER.
+ed25519_verify() {
+	printf '%s\n' '-----BEGIN PUBLIC KEY-----' "$1" '-----END PUBLIC KEY-----' >"$work/key.pem"
+	printf '%s' "$2" | openssl base64 -d -A >"$work/signature" 2>/dev/null || return 1
+	[ "$(wc -c <"$work/signature" | tr -d ' ')" = 64 ] || return 1
+	openssl pkeyutl -verify -pubin -inkey "$work/key.pem" -rawin -in "$3" -sigfile "$work/signature" >/dev/null 2>&1
+}
+
+# has_ed25519 tells whether openssl checks Ed25519 signatures, as OpenSSL
+# 1.1.1 and LibreSSL do not, with test 2 of RFC 8032, whose message is the
+# byte 0x72.
+has_ed25519() {
+	command -v openssl >/dev/null 2>&1 || return 1
+	printf r >"$work/rfc8032"
+	ed25519_verify MCowBQYDK2VwAyEAPUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw= \
+		kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA== "$work/rfc8032"
 }
 
 # verifier prints the JavaScript that checks an Ed25519 signature: its
