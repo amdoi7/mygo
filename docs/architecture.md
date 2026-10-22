@@ -3326,7 +3326,18 @@ either.
   4095 pixels a side, draws as tiles of it (`pathTiles`), each a mask of
   the whole path clipped to the tile: only the tiles that show and that
   its edges reach, and, inside a fill, tiles covered whole, which share
-  one mask.
+  one mask. A stroke's mask is the outline of its center line, each edge
+  drawn once (`strokeInto`): one side, turning at corners and ends as the
+  path's joins and caps say (`Path.Join`, `Path.Cap`), and back along the
+  other. Its dashes (`Path.Dash`) are cut from the center line as the mask
+  is drawn, from where each polyline starts in their pattern, so that a
+  trimmed path's dashes stay where they are, and its key holds that place,
+  in quarters of a pixel within one pattern, with the caps, joins and
+  dashes. As in Skia, a dash through the start of a closed subpath is one
+  dash, and the point between a dash and a gap is in the gap. Square caps reach past half the
+  stroke's width, and miter joins as far as the points of its corners do
+  within the miter limit (`flatPath.reach`, from the points the mask
+  draws), and the mask and its tiles reach as far.
   Opaque `Painter.StrokePolyline` on a GPU is the exception: each segment
   is a rotated fill with round ends, drawn as other fills are, without a
   mask; translucent ones, and the CPU renderer, take the mask's way, so
