@@ -338,3 +338,41 @@ func TestZoomTellsTheWindowsCoordinates(t *testing.T) {
 		t.Errorf("web view placed at %+v zoomed 2 times, %+v unzoomed", w2, w1)
 	}
 }
+
+// Scrolling over an element whose handler leaves it goes on to the
+// handler around it, as it would without the inner one: an editor scrolls
+// under the boxes it shows over its text, and a scroll container around
+// both scrolls only when neither takes it.
+func TestScrollPassesToOuterHandler(t *testing.T) {
+	var page ScrollState
+	var outer float32
+	take := true
+	tt := NewTester(func(c *Context) {
+		Scroll(c).Fill().TrackScroll(&page).Children(func() {
+			Box(c).Size(200, 150).Shrink(0).HandleInput(func(ev InputEvent) bool {
+				if ev.Kind != InputScroll || !take {
+					return false
+				}
+				outer += ev.DY
+				return true
+			}).Children(func() {
+				Box(c).Size(100, 50).HandleInput(func(InputEvent) bool { return false })
+			})
+			Box(c).Height(1000).Shrink(0)
+		})
+	}, 200, 200)
+	defer tt.rt.close()
+	tt.Frame()
+
+	tt.Scroll(20, 20, 0, 30)
+	tt.Frame()
+	if outer != 30 || page.Y != 0 {
+		t.Fatalf("over the inner box: outer handler scrolled %v, page %v; want 30, 0", outer, page.Y)
+	}
+	take = false
+	tt.Scroll(20, 20, 0, 30)
+	tt.Frame()
+	if outer != 30 || page.Y != 30 {
+		t.Fatalf("neither handler taking it: outer %v, page %v; want 30, 30", outer, page.Y)
+	}
+}
