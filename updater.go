@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/internal/update"
@@ -52,6 +53,9 @@ type UpdaterModule struct{}
 
 // Updater installs new versions of the app.
 var Updater = &UpdaterModule{}
+
+// prereleases is set while Check offers prereleases (SetPrereleases).
+var prereleases atomic.Bool
 
 // ErrUpdatesDisabled is returned by Check for builds without updates:
 // development builds, and builds of apps without updates in mygo.config.ts.
@@ -97,11 +101,26 @@ func (u *UpdaterModule) Check(ctx context.Context) (*Update, error) {
 	if !u.Enabled() {
 		return nil, ErrUpdatesDisabled
 	}
-	return checkUpdate(ctx, packageUpdateFeed, packageUpdateKey, App.Version())
+	return checkUpdate(ctx, packageUpdateFeed, packageUpdateKey, App.Version(), prereleases.Load())
 }
 
-func checkUpdate(ctx context.Context, feed, key, current string) (*Update, error) {
-	feed, err := update.ResolveFeed(ctx, feed, httpGet)
+// SetPrereleases makes Check offer prereleases too, such as 1.3.0-beta.1,
+// for the users of an app who chose its beta: with updates on GitHub,
+// Check then reads the release of the highest version that is not a
+// draft, through the GitHub API (one request a check), so that a release
+// newer than the prereleases is offered too. Updates of updates.url are
+// the manifest the server has, whichever is set. It is off at launch.
+func (u *UpdaterModule) SetPrereleases(on bool) { prereleases.Store(on) }
+
+// Prereleases reports whether Check offers prereleases (SetPrereleases).
+func (u *UpdaterModule) Prereleases() bool { return prereleases.Load() }
+
+func checkUpdate(ctx context.Context, feed, key, current string, pre bool) (*Update, error) {
+	resolve := update.ResolveFeed
+	if pre {
+		resolve = update.ResolvePrereleaseFeed
+	}
+	feed, err := resolve(ctx, feed, httpGet)
 	if err != nil {
 		return nil, fmt.Errorf("mygo: checking for updates: %w", err)
 	}

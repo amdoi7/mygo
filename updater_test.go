@@ -137,16 +137,16 @@ func TestUpdater(t *testing.T) {
 	if _, err := Updater.Check(ctx); err != ErrUpdatesDisabled {
 		t.Errorf("Check without updates: %v", err)
 	}
-	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9")
+	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9", false)
 	if err != nil || up == nil || up.Version != "1.2.0" || up.Notes != "- Faster" || up.Date.Year() != 2026 {
 		t.Fatalf("checkUpdate = %+v, %v", up, err)
 	}
 	for _, current := range []string{"1.2.0", "1.10.0"} {
-		if up, err := checkUpdate(ctx, srv.URL+"/update.json", key, current); up != nil || err != nil {
+		if up, err := checkUpdate(ctx, srv.URL+"/update.json", key, current, false); up != nil || err != nil {
 			t.Errorf("checkUpdate from %s = %+v, %v", current, up, err)
 		}
 	}
-	if _, err := checkUpdate(ctx, "http://example.com/update.json", key, "1.0.0"); err == nil || !strings.Contains(err.Error(), "HTTPS") {
+	if _, err := checkUpdate(ctx, "http://example.com/update.json", key, "1.0.0", false); err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Errorf("plain HTTP: %v", err)
 	}
 
@@ -191,7 +191,7 @@ func TestUpdater(t *testing.T) {
 func TestUpdaterDelta(t *testing.T) {
 	ctx := context.Background()
 	srv, key, m, requests := updateServer(t, "1.2.0", "v2, a bigger version", "1.1.9")
-	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9")
+	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9", false)
 	if err != nil || len(up.manifest.Deltas) != 1 {
 		t.Fatalf("checkUpdate = %+v, %v", up, err)
 	}
@@ -259,7 +259,7 @@ func TestUpdaterWaitsForOpenFiles(t *testing.T) {
 	}
 	ctx := context.Background()
 	srv, key, _, _ := updateServer(t, "1.2.0", "v2", "")
-	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9")
+	up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9", false)
 	if err != nil {
 		t.Fatal(err)
 	}

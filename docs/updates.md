@@ -111,6 +111,19 @@ Publish the files where `updates` points to:
 Each platform, such as `darwin-arm64`, `darwin-universal` or
 `windows-amd64`, has its own manifest, and a build only looks at its own.
 
+### Prereleases
+
+A release that GitHub marks a prerelease, such as `1.3.0-beta.1`, is never
+the latest release, so installed apps skip it. Apps with a beta let the
+users who chose it see prereleases with
+`mygo.Updater.SetPrereleases(true)`: their checks then read the release
+of the highest version that is not a draft, through the GitHub API, so
+they get the next prerelease, and the release after it too. Versions
+compare as semantic versioning does, `1.3.0-beta.2` before
+`1.3.0-beta.10` before `1.3.0`. Turning it off installs no older version:
+the app updates again once a release is newer than the prerelease it
+runs. The choice lasts while the app runs; the app keeps it.
+
 ### Publishing to S3
 
 When a bucket of Amazon S3, or of a compatible service such as Cloudflare

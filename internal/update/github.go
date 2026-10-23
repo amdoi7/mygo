@@ -100,6 +100,81 @@ func latestTagged(ctx context.Context, get Getter, repo, prefix string) (string,
 	return "", fmt.Errorf("%w in %s tagged %s", ErrNotPublished, repo, prefix)
 }
 
+// ResolvePrereleaseFeed is ResolveFeed for apps that take prereleases
+// too: for a feed of GitHub releases, tagged (TaggedFeed) or of the latest
+// release, the manifest of the release of the highest version (Compare)
+// that is not a draft, a prerelease or not, among those with the tag's
+// prefix ("v" for the feed of the latest release, the prefix of mygo build
+// without one). Other feeds are the URL of the manifest.
+func ResolvePrereleaseFeed(ctx context.Context, feed string, get Getter) (string, error) {
+	repo, prefix, name, ok := parseGitHubFeed(feed)
+	if !ok {
+		if strings.Contains(feed, VersionPlaceholder) {
+			return "", fmt.Errorf("%s is not a feed of GitHub releases", feed)
+		}
+		return feed, nil
+	}
+	tag, err := highestTagged(ctx, get, repo, prefix)
+	if err != nil {
+		return "", err
+	}
+	return "https://github.com/" + repo + "/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(name), nil
+}
+
+// parseGitHubFeed returns the repository, the tag prefix and the manifest
+// name of a feed of GitHub releases, tagged or of the latest release.
+func parseGitHubFeed(feed string) (repo, prefix, name string, ok bool) {
+	rest, ok := strings.CutPrefix(feed, "https://github.com/")
+	parts := strings.SplitN(rest, "/", 6)
+	if !ok || len(parts) != 6 || parts[2] != "releases" {
+		return "", "", "", false
+	}
+	name, err := url.PathUnescape(parts[5])
+	if err != nil {
+		return "", "", "", false
+	}
+	switch {
+	case parts[3] == "latest" && parts[4] == "download":
+		prefix = "v"
+	case parts[3] == "download" && strings.HasSuffix(parts[4], VersionPlaceholder):
+		if prefix, err = url.PathUnescape(strings.TrimSuffix(parts[4], VersionPlaceholder)); err != nil {
+			return "", "", "", false
+		}
+	default:
+		return "", "", "", false
+	}
+	return parts[0] + "/" + parts[1], prefix, name, true
+}
+
+// highestTagged returns the tag of the release of repo tagged prefix and
+// the highest version that is not a draft.
+func highestTagged(ctx context.Context, get Getter, repo, prefix string) (string, error) {
+	var best, bestVersion string
+	for page := 1; page <= maxReleasePages; page++ {
+		u := GitHubAPI + "/repos/" + repo + "/releases?per_page=" + strconv.Itoa(releasesPerPage) + "&page=" + strconv.Itoa(page)
+		releases, err := getReleases(ctx, get, u)
+		if err != nil {
+			return "", err
+		}
+		for _, r := range releases {
+			v, ok := strings.CutPrefix(r.TagName, prefix)
+			if r.Draft || !ok || v == "" || v[0] < '0' || v[0] > '9' {
+				continue
+			}
+			if best == "" || Compare(v, bestVersion) > 0 {
+				best, bestVersion = r.TagName, v
+			}
+		}
+		if len(releases) < releasesPerPage {
+			break
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("%w in %s tagged %s", ErrNotPublished, repo, prefix)
+	}
+	return best, nil
+}
+
 type release struct {
 	TagName    string `json:"tag_name"`
 	Draft      bool   `json:"draft"`

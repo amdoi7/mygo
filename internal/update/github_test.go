@@ -67,3 +67,50 @@ func TestResolveFeed(t *testing.T) {
 		t.Error("a feed with {version} outside GitHub releases was resolved")
 	}
 }
+
+func TestResolvePrereleaseFeed(t *testing.T) {
+	var releases []string
+	get := func(_ context.Context, u string) (io.ReadCloser, error) {
+		if u == "https://api.github.com/repos/me/app/releases?per_page=100&page=1" {
+			return io.NopCloser(strings.NewReader("[" + strings.Join(releases, ",") + "]")), nil
+		}
+		return nil, fmt.Errorf("GET %s", u)
+	}
+	rel := func(tag string, draft, pre bool) string {
+		return fmt.Sprintf(`{"tag_name": %q, "draft": %t, "prerelease": %t}`, tag, draft, pre)
+	}
+	latest := "https://github.com/me/app/releases/latest/download/update-linux-amd64.json"
+	tagged := TaggedFeed("me/app", "desktop-v", "update-linux-amd64.json")
+	for _, c := range []struct {
+		name, feed string
+		releases   []string
+		want       string
+	}{
+		{"a prerelease newer than the latest release", latest,
+			[]string{rel("v1.3.0", true, false), rel("v1.2.0-beta.2", false, true), rel("v1.2.0-beta.10", false, true), rel("v1.1.0", false, false)},
+			"https://github.com/me/app/releases/download/v1.2.0-beta.10/update-linux-amd64.json"},
+		{"a release newer than the prereleases", latest,
+			[]string{rel("v1.2.0", false, false), rel("v1.2.0-beta.2", false, true)},
+			"https://github.com/me/app/releases/download/v1.2.0/update-linux-amd64.json"},
+		{"by version, not by date", latest,
+			[]string{rel("v1.1.1", false, false), rel("v1.2.0-beta.1", false, true), rel("nightly", false, true)},
+			"https://github.com/me/app/releases/download/v1.2.0-beta.1/update-linux-amd64.json"},
+		{"tagged", tagged,
+			[]string{rel("cli-v3.0.0-beta.1", false, true), rel("desktop-v2.0.0-rc.1", false, true), rel("desktop-v1.0.0", false, false)},
+			"https://github.com/me/app/releases/download/desktop-v2.0.0-rc.1/update-linux-amd64.json"},
+	} {
+		releases = c.releases
+		if got, err := ResolvePrereleaseFeed(context.Background(), c.feed, get); err != nil || got != c.want {
+			t.Errorf("%s: ResolvePrereleaseFeed = %s, %v, want %s", c.name, got, err, c.want)
+		}
+	}
+
+	releases = []string{rel("v1.0.0", true, false)}
+	if _, err := ResolvePrereleaseFeed(context.Background(), latest, get); !errors.Is(err, ErrNotPublished) {
+		t.Errorf("with drafts only, err = %v", err)
+	}
+	plain := "https://downloads.example.com/my-app/update-linux-amd64.json"
+	if got, err := ResolvePrereleaseFeed(context.Background(), plain, nil); err != nil || got != plain {
+		t.Errorf("ResolvePrereleaseFeed = %s, %v", got, err)
+	}
+}
