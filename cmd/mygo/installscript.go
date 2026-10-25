@@ -72,6 +72,7 @@ func installScript(c *Config) string {
 		"TagPrefix":  "",
 		"PublicKey":  "",
 		"WebKit":     "",
+		"Updates":    "",
 	}
 	if c.Linux.webView() {
 		data["WebKit"] = "yes"
@@ -89,6 +90,10 @@ func installScript(c *Config) string {
 		data["Curl"] = "curl -fsSL " + c.updateFile(installScriptName, true) + " | sh"
 	}
 	if c.Updates != nil {
+		// Without updates, the script installs only an archive given to
+		// it, on Linux, and has none of the code that downloads, checks
+		// signatures or installs on macOS.
+		data["Updates"] = "yes"
 		data["PublicKey"] = strings.TrimSpace(c.Updates.PublicKey)
 	}
 	var b strings.Builder
@@ -141,6 +146,7 @@ version={{q .Version}}
 # release of the newest tag with the prefix when the repository's releases
 # (api) hold others too.
 releases={{q .Releases}}
+{{- if .Updates}}
 api={{q .API}}
 tag_prefix={{q .TagPrefix}}
 # macOS: the bundle of the app, its identifier, and the Ed25519 public key
@@ -153,6 +159,7 @@ public_key={{q .PublicKey}}
 download_url="{{"${"}}{{.Env}}_DOWNLOAD_URL:-}"
 install_dir="{{"${"}}{{.Env}}_INSTALL_DIR:-}"
 no_open="{{"${"}}{{.Env}}_NO_OPEN:-}"
+{{- end}}
 
 usage() {
 	cat <<EOF
@@ -195,6 +202,7 @@ main() {
 		exit 2
 		;;
 	esac
+{{- if .Updates}}
 	if [ -n "$download_url" ]; then
 		releases="${download_url%/}/"
 		api=
@@ -204,6 +212,9 @@ main() {
 	else
 		linux "$@"
 	fi
+{{- else}}
+	linux "$@"
+{{- end}}
 }
 
 linux() {
@@ -239,6 +250,7 @@ linux() {
 	fi
 	if [ -z "$archive" ]; then
 		[ -n "$releases" ] || fail "no $name-$version-$target.tar.gz next to this script: pass the archive to install"
+{{- if .Updates}}
 		command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || fail "downloading $app_name needs curl or wget"
 		if [ -n "$api" ]; then
 			tag="$(latest_tag)" || fail "could not list the releases at $api"
@@ -261,6 +273,7 @@ linux() {
 		fetch "$url" >"$archive" || fail "could not download $url"
 		[ "$(wc -c <"$archive" | tr -d ' ')" = "$size" ] || fail "$url does not have the size of the manifest: not installing it"
 		verify_openssl "$archive" "$signature" || fail "$url is not signed with the key of $app_name: not installing it"
+{{- end}}
 	fi
 	[ -f "$archive" ] || fail "no archive at $archive"
 	tar -tzf "$archive" >"$work/names" 2>/dev/null || fail "$archive is not a .tar.gz archive"
@@ -328,6 +341,7 @@ linux() {
 	fi
 {{- end}}
 }
+{{- if .Updates}}
 
 # latest_tag prints the tag of the newest release tagged $tag_prefix that is
 # neither a draft nor a prerelease. The GitHub API lists releases newest
@@ -633,6 +647,7 @@ function run(argv) {
 }
 EOF
 }
+{{- end}}
 
 # has_webkit fails when the system's library cache has no WebKitGTK, which
 # the app loads when it starts (4.1, else 4.0), with GTK, which it depends

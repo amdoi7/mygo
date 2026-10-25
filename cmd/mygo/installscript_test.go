@@ -571,7 +571,7 @@ func verifyScript(t *testing.T, c *Config, run string) string {
 // when the system's has none (LibreSSL on macOS), else skips the test.
 func opensslEd25519(t *testing.T) {
 	t.Helper()
-	check := verifyScript(t, &Config{Name: "App"}, "has_ed25519")
+	check := verifyScript(t, &Config{Name: "App", Updates: &Updates{URL: "https://example.com"}}, "has_ed25519")
 	for _, dir := range []string{"", "/opt/homebrew/opt/openssl@3/bin", "/usr/local/opt/openssl@3/bin"} {
 		if dir != "" {
 			if _, err := os.Stat(filepath.Join(dir, "openssl")); err != nil {
