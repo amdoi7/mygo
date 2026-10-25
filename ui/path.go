@@ -913,9 +913,12 @@ func fillInto(z *vec.Rasterizer, f *flatPath, x0, y0 float32) {
 
 // strokeBufs is the memory strokeInto reuses: a polyline moved to the
 // mask, and a dash of it, each grown to go there and back, and the first
-// dash of a closed polyline, which waits for its last.
+// dash of a closed polyline, which waits for its last; and how many dashes
+// and gaps the path is cut into so far (strokeCutsMax), here rather than
+// on the stack, which dashLine, a function value, would move to the heap.
 type strokeBufs struct {
 	line, dash, head [][2]float32
+	cuts             int
 }
 
 // strokeCutsMax is how many dashes and gaps strokeInto cuts a path into,
@@ -934,7 +937,7 @@ var strokeCutsMax = 1 << 16
 // not: where their edges meet, as along the outside of curves, their
 // coverage would add up and thicken the stroke.
 func strokeInto(z *vec.Rasterizer, b *strokeBufs, f *flatPath, hw, x0, y0 float32) {
-	cuts := 0
+	b.cuts = 0
 	for i := range f.polys() {
 		// The polyline without repeated points, moved to the mask.
 		pts := b.line[:0]
@@ -945,12 +948,12 @@ func strokeInto(z *vec.Rasterizer, b *strokeBufs, f *flatPath, hw, x0, y0 float3
 		if closed && len(pts) > 2 && pts[0] == pts[len(pts)-1] {
 			pts = pts[:len(pts)-1]
 		}
-		if len(f.dash) == 0 || cuts >= strokeCutsMax {
+		if len(f.dash) == 0 || b.cuts >= strokeCutsMax {
 			b.line = strokeLine(z, pts, closed, f, hw, [2]float32{1, 0})
 			continue
 		}
 		b.line = pts
-		dashLine(z, b, pts, closed, f, hw, f.phase[i], &cuts)
+		dashLine(z, b, pts, closed, f, hw, f.phase[i])
 	}
 }
 
@@ -960,7 +963,7 @@ func strokeInto(z *vec.Rasterizer, b *strokeBufs, f *flatPath, hw, x0, y0 float3
 // those methods set them, once, and only a path they set up calls them,
 // after them.
 var (
-	dashLine   func(z *vec.Rasterizer, b *strokeBufs, pts [][2]float32, closed bool, f *flatPath, hw, phase float32, cuts *int)
+	dashLine   func(z *vec.Rasterizer, b *strokeBufs, pts [][2]float32, closed bool, f *flatPath, hw, phase float32)
 	snapPhases func(f *flatPath)
 	miterReach func(f *flatPath) float32
 	linkDashes sync.Once
@@ -972,9 +975,9 @@ var (
 // an open polyline that goes on around the corners it reaches. A closed
 // polyline's dash that runs through its first point is one dash, which
 // turns there as at its other corners, and one that runs all around it is
-// the polyline whole. It counts the dashes and gaps it cuts in cuts, and
+// the polyline whole. It counts the dashes and gaps it cuts in b.cuts, and
 // past strokeCutsMax of them strokes the rest of the polyline whole.
-func strokeDashes(z *vec.Rasterizer, b *strokeBufs, pts [][2]float32, closed bool, f *flatPath, hw, phase float32, cuts *int) {
+func strokeDashes(z *vec.Rasterizer, b *strokeBufs, pts [][2]float32, closed bool, f *flatPath, hw, phase float32) {
 	k, left := f.dashAt(phase)
 	on := k%2 == 0
 	n := len(pts)
@@ -1011,7 +1014,7 @@ func strokeDashes(z *vec.Rasterizer, b *strokeBufs, pts [][2]float32, closed boo
 				dash = append(dash, pt)
 			}
 			first = false
-			if *cuts++; *cuts >= strokeCutsMax {
+			if b.cuts++; b.cuts >= strokeCutsMax {
 				// The rest, from here, whole.
 				dash = append(dash[:0], pt)
 				for j := s + 1; j <= segs; j++ {
