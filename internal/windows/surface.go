@@ -242,6 +242,10 @@ func (s *surface) Size() (float64, float64, float64) {
 
 func (s *surface) RequestFrame() { procInvalidateRectW.Call(s.hwnd, 0, 0) }
 
+// FramesAtOnce marks that RequestFrame paints at once, not at the display's
+// next refresh (platform.ImmediateFrameSurface).
+func (s *surface) FramesAtOnce() {}
+
 // FrameNow draws a frame at once, for one the content left to draw until
 // the swap chain had room for it.
 func (s *surface) FrameNow() {

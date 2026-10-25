@@ -563,6 +563,11 @@ func (h *windowHost) detach() {
 
 func (h *windowHost) requestFrame() { h.conn.Surface.RequestFrame() }
 
+func (h *windowHost) framesAtOnce() bool {
+	_, ok := h.conn.Surface.(platform.ImmediateFrameSurface)
+	return ok
+}
+
 func (h *windowHost) setFrameRate(fps float32) {
 	if s, ok := h.conn.Surface.(platform.FrameRateSurface); ok {
 		s.SetFrameRate(float64(fps))

@@ -2263,8 +2263,13 @@ either.
   (`paceSkips`) unless something else asked for a frame since, and the
   surface is told of the rate (`platform.FrameRateSurface`): macOS sets
   its display link's `preferredFrameRateRange`, which has a ProMotion
-  display refresh as often while nothing else on it asks for more. With
-  the display's rate unknown (browsers), frames come at each refresh.
+  display refresh as often while nothing else on it asks for more. A
+  surface whose frames asked for come at once rather than at the next
+  refresh (`platform.ImmediateFrameSurface`: Windows, where presenting
+  paces frames) would ask again and again until the frame is due: the
+  repaint timer asks for it then instead, and the frame it brings keeps
+  the pace's times, as the timer fires a little late. With the display's
+  rate unknown (browsers), frames come at each refresh.
   While nothing of the window shows (`platform.OccludableSurface`: a macOS
   window hidden, minimized or covered by other windows, whose display link
   still ticks, at the display's rate for half a minute, then at about 40

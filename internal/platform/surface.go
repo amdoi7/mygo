@@ -109,6 +109,14 @@ type FrameRateSurface interface {
 	SetFrameRate(fps float64)
 }
 
+// ImmediateFrameSurface is a Surface whose RequestFrame sends a
+// SurfaceFrame at once, as Windows' does, rather than at the display's next
+// refresh: a frame due at a later refresh waits on a timer instead.
+type ImmediateFrameSurface interface {
+	// FramesAtOnce marks the surface.
+	FramesAtOnce()
+}
+
 // MaximizeButtonSurface is a Surface whose window makes the maximize
 // button its content draws (in a window without its own, as
 // WindowOptions.HideWindowButtons) the system's for the pointer: Windows

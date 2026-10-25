@@ -60,6 +60,9 @@ type headless struct {
 	// frameRate is what the engine last told of the frames a second that
 	// come while only drawings move (setFrameRate).
 	frameRate float32
+	// atOnce has requestFrame stand for a surface whose frames come at
+	// once rather than at the display's next refresh (framesAtOnce).
+	atOnce bool
 	// material tells that the window shows one (SetVibrancy).
 	material bool
 	// reading runs once as the clipboard is next read, as GTK's nested
@@ -89,6 +92,7 @@ type headless struct {
 func (h *headless) size() (float32, float32, float32) { return h.w, h.h, h.scale }
 func (h *headless) refreshRate() float32              { return h.hz }
 func (h *headless) setFrameRate(fps float32)          { h.frameRate = fps }
+func (h *headless) framesAtOnce() bool                { return h.atOnce }
 func (h *headless) occluded() bool                    { return h.hidden }
 func (h *headless) present(s *scene.Scene) {
 	h.last = s

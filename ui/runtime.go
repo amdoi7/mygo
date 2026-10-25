@@ -28,6 +28,10 @@ type host interface {
 	// setFrameRate tells the surface how many frames a second come while
 	// only drawings move, 0 for one each refresh (engine.pace).
 	setFrameRate(fps float32)
+	// framesAtOnce reports whether requestFrame has a frame come at once
+	// rather than at the display's next refresh
+	// (platform.ImmediateFrameSurface).
+	framesAtOnce() bool
 	// afterTimer and repaintTimer arm the timers of After and
 	// Painter.After for at, or stop them for the zero time.
 	afterTimer(at time.Time)
@@ -324,12 +328,14 @@ type engine struct {
 	// for the display's with Painter.AnimationFrame. paceEvery is how many
 	// of the display's refreshes a frame that only paints again comes
 	// every, 1 for each, and paceRate the frames a second the surface was
-	// told of (pace); pacedAt is when the last frame began.
+	// told of (pace); pacedAt is when the last frame began, and pacedNext
+	// when the repaint timer asked for the next (framesAtOnce).
 	repaintRate float32
 	repaintFull bool
 	paceEvery   int
 	paceRate    float32
 	pacedAt     time.Time
+	pacedNext   time.Time
 	// inkStale tells that elements moved since commit found their ink
 	// (node.ink), as poses do in frames that only paint: painting then
 	// skips none.
@@ -766,13 +772,30 @@ func (rt *engine) surfaceFrame() {
 		return
 	}
 	if rt.paceSkips() {
+		rt.frameAt = time.Time{}
+		if rt.host.framesAtOnce() {
+			// A frame asked for would come at once, again and again
+			// until this one is due: the repaint timer asks for it then.
+			hz := rt.host.refreshRate()
+			rt.repaintDue = rt.pacedAt.Add(time.Duration(float64(rt.paceEvery) * float64(time.Second) / float64(hz)))
+			rt.pacedNext = rt.repaintDue
+			rt.host.repaintTimer(rt.repaintDue)
+			return
+		}
 		// The display's next refresh asks again; the frame waited for
 		// it draws at its own time.
-		rt.frameAt = time.Time{}
 		rt.host.requestFrame()
 		return
 	}
 	rt.pacedAt = rt.now()
+	if next := rt.pacedNext; !next.IsZero() {
+		// The frame the timer asked for keeps the pace's own times, as the
+		// timer fires a little late: frames would come later and later.
+		rt.pacedNext = time.Time{}
+		if d := rt.pacedAt.Sub(next); d > -time.Millisecond && float32(d.Seconds())*rt.host.refreshRate() < 1 {
+			rt.pacedAt = next
+		}
+	}
 	if w, h, scale := rt.host.size(); rt.redraw && !rt.inFrame && rt.c.root != nil &&
 		rt.painted == [3]float32{w, h, scale} && rt.text.Generation() == rt.gen {
 		rt.repaintFrame(w, h, scale)

@@ -382,3 +382,50 @@ func TestAnimationFrameRate(t *testing.T) {
 		t.Errorf("with nothing moving, told the surface %v frames a second, want 0", tt.h.frameRate)
 	}
 }
+
+// TestAnimationFrameRateAtOnce checks the frames of AnimationFrameRate on a
+// surface whose frames asked for come at once, not at the display's next
+// refresh, as Windows': the refreshes between wait on the repaint timer,
+// rather than ask for frames that would come again and again.
+func TestAnimationFrameRateAtOnce(t *testing.T) {
+	draws := 0
+	tt := newRepaintTester(func(c *context) {
+		coreBox(c).Size(100, 20).Draw(func(p *Painter, r Rect) {
+			draws++
+			p.AnimationFrameRate(30)
+		})
+	})
+	tt.h.hz, tt.h.atOnce = 60, true
+	tt.rt.changed()
+	tt.frame(0)
+	start, began := draws, tt.clock
+	// The frame asked for comes at once: it draws nothing and asks for no
+	// other, but for one when the next is due.
+	if _, more := tt.frame(time.Millisecond); more || draws != start {
+		t.Fatalf("a frame coming at once: painted %d, asked for another %v, want 0 and false", draws-start, more)
+	}
+	if due := began.Add(time.Second / 30); !tt.rt.repaintDue.Equal(due) || !tt.h.repaintAt.Equal(due) {
+		t.Fatalf("a frame coming at once: repaint due %v, timer at %v, want both at %v", tt.rt.repaintDue.Sub(began), tt.h.repaintAt.Sub(began), due.Sub(began))
+	}
+	// The timer asks for it at its time, and it paints.
+	tt.clock = began.Add(time.Second / 30)
+	tt.h.requested.Store(false)
+	tt.rt.repaintNow()
+	if !tt.h.requested.Load() {
+		t.Fatal("the repaint timer did not ask for the frame due")
+	}
+	if _, more := tt.frame(0); !more || draws != start+1 {
+		t.Errorf("the frame due: painted %d, asked for another %v, want 1 and true", draws-start, more)
+	}
+	// A timer firing late does not make the frames after it late too: the
+	// next is due a frame after the last was, not after the timer fired.
+	tt.frame(time.Millisecond)
+	late := began.Add(2*time.Second/30 + 3*time.Millisecond)
+	tt.clock = late
+	tt.rt.repaintNow()
+	tt.frame(0)
+	tt.frame(time.Millisecond)
+	if due := began.Add(3 * (time.Second / 30)); !tt.rt.repaintDue.Equal(due) {
+		t.Errorf("after a frame 3ms late, the next is due %v, want %v", tt.rt.repaintDue.Sub(began), due.Sub(began))
+	}
+}
