@@ -129,6 +129,10 @@ func TestInstallPS1(t *testing.T) {
 				t.Errorf("install.ps1 of %+v has no %q", tc.updates, line)
 			}
 		}
+		// Windows PowerShell 5.1 outputs a JSON array as one object.
+		if !strings.Contains(script, `-Uri "$api&page=$page" | ForEach-Object { $_ })`) {
+			t.Errorf("install.ps1 of %+v does not enumerate the releases", tc.updates)
+		}
 		if strings.Contains(script, "60000") {
 			t.Errorf("install.ps1 of %+v waits a minute for the app to quit", tc.updates)
 		}
@@ -151,6 +155,31 @@ func TestInstallPS1(t *testing.T) {
 				t.Errorf("pwsh cannot parse install.ps1: %v\n%s", err, out)
 			}
 		}
+	}
+	// Names of other characters than ASCII: their PowerShell strings stay
+	// ASCII, as Windows PowerShell 5.1 reads the script that irm
+	// downloads as Latin-1, and a typographic quote ends a string there.
+	for s, want := range map[string]string{
+		"":                     "''",
+		"Jane's App":           "'Jane''s App'",
+		"Jane\u2019s App":      "('' + 'Jane' + [char]0x2019 + 's App')",
+		"\u5feb\u5199":         "('' + [char]0x5FEB + [char]0x5199)",
+		"Caf\u00e9 \U0001F600": "('' + 'Caf' + [char]0x00E9 + ' ' + [char]0xD83D + [char]0xDE00)",
+	} {
+		if got := psQuote(s); got != want {
+			t.Errorf("psQuote(%q) = %s, want %s", s, got, want)
+		}
+	}
+	c := &Config{Name: "\u5feb\u5199 Caf\u00e9", Identifier: "com.example.app", Version: "1.2.0", Updates: &Updates{PublicKey: key, GitHub: "me/my-app"}}
+	script := installPS1(c)
+	for i, r := range script {
+		if r >= 0x80 {
+			t.Errorf("install.ps1 of %s has %q at %d: not ASCII", c.Name, r, i)
+			break
+		}
+	}
+	if !strings.Contains(script, "$appName = ('' + [char]0x5FEB + [char]0x5199 + ' Caf' + [char]0x00E9)\n") {
+		t.Errorf("install.ps1 of %s names the app otherwise:\n%s", c.Name, script)
 	}
 	if got := envName("my-app"); got != "MY_APP" {
 		t.Errorf("envName(my-app) = %s", got)

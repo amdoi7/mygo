@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
+	"unicode/utf16"
 
 	"github.com/egoist/mygo/internal/update"
 )
@@ -36,8 +38,13 @@ func writeInstallPS1(c *Config, dir string) (string, error) {
 
 func installPS1(c *Config) string {
 	u := c.Updates
+	// The comment that names the app stays ASCII too (psQuote).
+	title := strings.Join(strings.Fields(c.Name), " ")
+	if strings.ContainsFunc(title, func(r rune) bool { return r >= 0x7f }) {
+		title = "the app"
+	}
 	data := map[string]string{
-		"Title":      strings.Join(strings.Fields(c.Name), " "),
+		"Title":      title,
 		"Name":       c.Name,
 		"Exe":        c.executableName() + ".exe",
 		"Folder":     fsName(c.Name),
@@ -75,9 +82,33 @@ func installPS1(c *Config) string {
 	return b.String()
 }
 
-// psQuote quotes s for PowerShell.
+// psQuote quotes s for PowerShell, in ASCII: Windows PowerShell 5.1
+// decodes a script that irm downloads without a charset, as GitHub serves
+// release files, as Latin-1, and takes the typographic quotes of other
+// characters for the ends of a string. Other characters are [char] codes,
+// as PowerShell 5.1 has no escape for them in a string.
 func psQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	var parts []string
+	ascii := ""
+	for _, u := range utf16.Encode([]rune(s)) {
+		if u >= 0x20 && u < 0x7f {
+			ascii += string(rune(u))
+			continue
+		}
+		if ascii != "" {
+			parts = append(parts, "'"+strings.ReplaceAll(ascii, "'", "''")+"'")
+			ascii = ""
+		}
+		parts = append(parts, fmt.Sprintf("[char]0x%04X", u))
+	}
+	if len(parts) == 0 {
+		return "'" + strings.ReplaceAll(ascii, "'", "''") + "'"
+	}
+	if ascii != "" {
+		parts = append(parts, "'"+strings.ReplaceAll(ascii, "'", "''")+"'")
+	}
+	// A string first, so that + joins strings rather than adds numbers.
+	return "(''" + " + " + strings.Join(parts, " + ") + ")"
 }
 
 var installPS1Template = template.Must(template.New("").Funcs(template.FuncMap{"q": psQuote}).Parse(`# Installs {{.Title}} for the current user: the installer of the latest version
@@ -136,7 +167,9 @@ function Get-File([string]$url, [string]$path) {
 # is neither a draft nor a prerelease.
 function Get-LatestTag {
 	for ($page = 1; $page -le 10; $page++) {
-		$list = @(Invoke-RestMethod -UseBasicParsing -Uri "$api&page=$page")
+		# Windows PowerShell 5.1 outputs the JSON array as one object, which
+		# ForEach-Object enumerates.
+		$list = @(Invoke-RestMethod -UseBasicParsing -Uri "$api&page=$page" | ForEach-Object { $_ })
 		foreach ($r in $list) {
 			if (-not $r.draft -and -not $r.prerelease -and $r.tag_name.StartsWith($tagPrefix)) { return $r.tag_name }
 		}
