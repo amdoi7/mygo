@@ -213,6 +213,9 @@ func (p *Painter) paintable(e *node) bool {
 }
 
 func (p *Painter) element(e *node) {
+	if e.hidden {
+		return
+	}
 	savedTransform, savedInline := p.transform, p.inline
 	p.transform, p.inline = e.world, nil
 	defer func() { p.transform, p.inline = savedTransform, savedInline }()
@@ -631,7 +634,7 @@ func (p *Painter) dividers(e *node) {
 	}
 	var prev *node
 	for c := e.first; c != nil; c = c.next {
-		if c.flags&flagAbsolute != 0 || c.collapsed {
+		if c.flags&flagAbsolute != 0 || c.collapsed || c.hidden {
 			continue
 		}
 		if f := e.list; f != nil {
@@ -687,7 +690,7 @@ func (p *Painter) debug(e *node) {
 	p.opacity = 1
 	var walk func(e *node)
 	walk = func(e *node) {
-		if e.flags&flagInvisible != 0 {
+		if e.flags&flagInvisible != 0 || e.hidden {
 			return
 		}
 		box := Rect{e.x, e.y, e.w, e.h}

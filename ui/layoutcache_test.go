@@ -77,7 +77,7 @@ var lcStyles = [][]func(e *node){
 	{nil, func(e *node) { e.ColumnSpan(2) }, func(e *node) { e.ColumnStart(2) }, func(e *node) { e.RowStart(2).RowSpan(2) }},
 	{nil, func(e *node) { e.BorderWidth(3) }, func(e *node) { e.BorderWidth(1, 0, 6, 2) }},
 	{nil, func(e *node) { e.Top(5) }, func(e *node) { e.Left(-3) }, func(e *node) { e.End(4) }},
-	{nil, func(e *node) { e.Invisible() }},
+	{nil, func(e *node) { e.Invisible() }, func(e *node) { e.Hidden(true) }},
 	{nil, func(e *node) {
 		e.Transition(ElementTransition{Position: true, Size: true, Duration: 100 * time.Millisecond})
 	}, func(e *node) {
@@ -446,7 +446,7 @@ func TestLayoutInputs(t *testing.T) {
 	// or made volatile by sameLayout, and those it writes.
 	read := "flags ts cols rows spans image svg placeOn list form colFit overflow gridFit leaving ghosts attach popover " +
 		"first last next nchild parent st c measured tl lay laid x y w h contentW contentH frags runes paragraph " +
-		"ownText merged spansKey collapsed rowMinW field"
+		"ownText merged spansKey collapsed rowMinW field hidden"
 	// Fields the layout never reads.
 	other := "epoch key valueInput id depth track transform originX originY originSet world content contentSet " +
 		"pose poseAnim poseSet poseM poseFade reposed ink noCull backface bg fill grad stripes borderC borderStyle radius " +

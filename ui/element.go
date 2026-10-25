@@ -303,6 +303,11 @@ type node struct {
 	// backface hides it while its 3D transform turns its back to the
 	// viewer (BackfaceHidden).
 	backface bool
+	// hidden takes it and the elements inside it out of the frame, as
+	// CSS's display: none does (Hidden): the layout gives it no room, and
+	// it paints, takes input and reads to assistive technology as an
+	// invisible element does, while what is inside it keeps its state.
+	hidden bool
 
 	// Painting.
 	bg          Color
@@ -976,8 +981,33 @@ func (e *node) ClipY() *node { e.flags |= flagClipY; return e }
 
 // Invisible hides the element and its children, which keep their room in
 // the layout but draw nothing and take neither the pointer nor the focus,
-// as CSS's visibility: hidden does.
+// as CSS's visibility: hidden does. Hidden takes the room away too.
 func (e *node) Invisible() *node { e.flags |= flagInvisible; return e }
+
+// Hidden hides the element and its children when hide is true, as CSS's
+// display: none does: unlike an Invisible element, it takes no room in
+// the layout, nor a gap between its siblings, and draws nothing, takes
+// neither the pointer nor the focus, and is not read by assistive
+// technology. It is still built, so that what is inside it keeps its
+// state (scroll offsets, text being edited, animations) while it is
+// hidden, and shows as it was once hide is false again:
+//
+//	ui.Column(c).Hidden(!app.showDetails).Children(func() { ... })
+//
+// The focus leaves it as it hides, and what is attached to it
+// (AttachTo) hides with it. A List's rows are built as the list lays out,
+// so a hidden List builds none.
+func (e *node) Hidden(hide bool) *node { e.hidden = hide; return e }
+
+// inHidden reports whether the element or one around it is Hidden.
+func (e *node) inHidden() bool {
+	for p := e; p != nil; p = p.parent {
+		if p.hidden {
+			return true
+		}
+	}
+	return false
+}
 
 // Debug outlines the element and every element inside it, with their
 // padding and margins, to see the layout.
