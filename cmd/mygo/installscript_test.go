@@ -3,8 +3,11 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -553,6 +556,118 @@ func TestInstallScriptVerify(t *testing.T) {
 		}
 	}
 }
+
+// TestInstallScriptVerifier checks the JavaScript that install.sh runs on
+// macOS to check Ed25519 signatures (verifier) with Node.js, which runs
+// the same JavaScript as JavaScript for Automation: against the test
+// vectors of RFC 8032 and Go's signatures, and that it rejects what
+// crypto/ed25519 rejects.
+func TestInstallScriptVerifier(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("needs Node.js")
+	}
+	script := installScript(&Config{Name: "App", Updates: &Updates{PublicKey: "AAAA", URL: "https://example.com"}})
+	_, js, ok := strings.Cut(script, "verifier() {\n\tcat <<'EOF'\n")
+	js, _, ok2 := strings.Cut(js, "\nEOF\n")
+	if !ok || !ok2 {
+		t.Fatal("install.sh has no verifier")
+	}
+	path := filepath.Join(t.TempDir(), "verify.js")
+	if err := os.WriteFile(path, []byte(js+"\nconsole.log(run(process.argv.slice(2)))\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// verify runs the verifier as install.sh does: with the key, R and S
+	// of the signature, and k, the SHA-512 of R, the key and the message.
+	verify := func(key, sig, msg []byte) string {
+		t.Helper()
+		h := sha512.New()
+		h.Write(sig[:32])
+		h.Write(key)
+		h.Write(msg)
+		out, err := exec.Command(node, path, hex.EncodeToString(key), hex.EncodeToString(sig[:32]), hex.EncodeToString(sig[32:]), hex.EncodeToString(h.Sum(nil))).CombinedOutput()
+		if err != nil {
+			t.Fatalf("node: %v\n%s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	unhex := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+
+	// Section 7.1 of RFC 8032: TEST 1, 2, 3 and SHA(abc).
+	for _, v := range []struct{ seed, key, msg, sig string }{
+		{"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
+			"e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"},
+		{"4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb", "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", "72",
+			"92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"},
+		{"c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7", "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025", "af82",
+			"6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"},
+		{"833fe62409237b9d62ec77587520911e9a759cec1d19755b7da901b96dca3d42", "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+			"ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+			"dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704"},
+	} {
+		key, msg, sig := unhex(v.key), unhex(v.msg), unhex(v.sig)
+		priv := ed25519.NewKeyFromSeed(unhex(v.seed))
+		if !slices.Equal(priv.Public().(ed25519.PublicKey), key) || !slices.Equal(ed25519.Sign(priv, msg), sig) {
+			t.Fatalf("the vector of key %s does not match crypto/ed25519", v.key)
+		}
+		if got := verify(key, sig, msg); got != "ok" {
+			t.Errorf("RFC 8032 key %s: %s, want ok", v.key, got)
+		}
+		if got := verify(key, sig, append(slices.Clone(msg), 0)); got != "bad" {
+			t.Errorf("RFC 8032 key %s, another message: %s, want bad", v.key, got)
+		}
+	}
+
+	// Go's signatures of digests, as of the archives of updates, and the
+	// same signatures altered.
+	l, _ := new(big.Int).SetString("7237005577332262213973186563042994240857116359379907606001950938285454250989", 10)
+	for i := range 8 {
+		pub, priv, _ := ed25519.GenerateKey(nil)
+		_, other, _ := ed25519.GenerateKey(nil)
+		digest := sha256.Sum256([]byte(fmt.Sprint("archive ", i)))
+		sig := ed25519.Sign(priv, digest[:])
+		if got := verify(pub, sig, digest[:]); got != "ok" {
+			t.Errorf("signature %d: %s, want ok", i, got)
+		}
+		flipped := slices.Clone(sig)
+		flipped[i*9%64] ^= 1 << (i % 8)
+		// S + l, which is the same signature modulo l: RFC 8032 and
+		// crypto/ed25519 reject it, as S must be less than l.
+		s := new(big.Int).SetBytes(reverse(sig[32:]))
+		malleable := append(slices.Clone(sig[:32]), reverse(new(big.Int).Add(s, l).FillBytes(make([]byte, 32)))...)
+		for name, tc := range map[string]struct{ key, sig []byte }{
+			"flipped bit":   {pub, flipped},
+			"other key":     {pub, ed25519.Sign(other, digest[:])},
+			"S + l":         {pub, malleable},
+			"key not on it": {notOnCurve, sig},
+		} {
+			if ed25519.Verify(ed25519.PublicKey(tc.key), digest[:], tc.sig) {
+				t.Fatalf("signature %d, %s: crypto/ed25519 accepts it", i, name)
+			}
+			if got := verify(tc.key, tc.sig, digest[:]); got != "bad" {
+				t.Errorf("signature %d, %s: %s, want bad", i, name, got)
+			}
+		}
+	}
+}
+
+// reverse returns b with its bytes in reverse order, between the
+// little-endian numbers of Ed25519 and big.Int's big-endian ones.
+func reverse(b []byte) []byte {
+	r := slices.Clone(b)
+	slices.Reverse(r)
+	return r
+}
+
+// notOnCurve encodes no point of Ed25519: y = 2, for which
+// (y² - 1) / (d y² + 1) has no square root.
+var notOnCurve = append([]byte{2}, make([]byte, 31)...)
 
 // verifyScript writes install.sh of c without its last line, running
 // instead the shell code of run, and returns its path.
