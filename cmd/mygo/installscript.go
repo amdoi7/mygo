@@ -444,7 +444,12 @@ macos() {
 	if [ -e "$app" ]; then
 		mv "$app" "$staging/previous.app" || fail "could not replace $app"
 		if ! mv "$staging/$bundle" "$app"; then
-			mv "$staging/previous.app" "$app"
+			if ! mv "$staging/previous.app" "$app"; then
+				# Keep it for the user rather than remove it on exit.
+				previous="$staging/previous.app"
+				staging=
+				fail "could not replace $app: the installed version is in $previous"
+			fi
 			fail "could not replace $app"
 		fi
 	else
