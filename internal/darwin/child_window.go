@@ -65,7 +65,7 @@ func (w *window) showAboveParent(key bool) {
 func (w *window) frontmost(skip *window) id {
 	top := w.win
 	withPool(func() {
-		for _, x := range arrayItems(send(w.b.app, "orderedWindows")) {
+		for _, x := range w.b.windowsFrontToBack() {
 			c := w.b.byNSWindow[x]
 			switch {
 			case c == w:
@@ -88,6 +88,22 @@ func (w *window) descends(a *window) bool {
 		}
 	}
 	return false
+}
+
+// windowsFrontToBack returns the app's windows that show, on any Space,
+// front to back. NSApp's orderedWindows would leave panels out
+// (WindowOptions.Panel), which can be child windows too. Call it in a
+// pool.
+func (b *Backend) windowsFrontToBack() []id {
+	const allSpaces = 1 << 4 // NSWindowNumberListAllSpaces
+	nums := arrayItems(send(class("NSWindow"), "windowNumbersWithOptions:", allSpaces))
+	wins := make([]id, 0, len(nums))
+	for _, n := range nums {
+		if x := send(b.app, "windowWithWindowNumber:", uintptr(sendInt(n, "integerValue"))); x != 0 {
+			wins = append(wins, x)
+		}
+	}
+	return wins
 }
 
 // orderAbove orders w right above the window rel.
@@ -163,7 +179,7 @@ func (w *window) hideChildrenNow() {
 func (w *window) children(hidden bool) []*window {
 	var front, gone []*window
 	withPool(func() {
-		for _, x := range arrayItems(send(w.b.app, "orderedWindows")) {
+		for _, x := range w.b.windowsFrontToBack() {
 			if c := w.b.byNSWindow[x]; c != nil {
 				front = append(front, c)
 			}

@@ -69,11 +69,12 @@ func TestOnScreen(handle uintptr) bool {
 	return sendInt(id(handle), "occlusionState")&occlusionStateVisible != 0
 }
 
-// TestWindowOrder returns the app's windows on screen, front to back.
+// TestWindowOrder returns the app's windows on screen, panels too, front
+// to back.
 func TestWindowOrder() []uintptr {
 	var order []uintptr
 	withPool(func() {
-		for _, w := range arrayItems(send(theBackend.app, "orderedWindows")) {
+		for _, w := range theBackend.windowsFrontToBack() {
 			order = append(order, uintptr(w))
 		}
 	})
