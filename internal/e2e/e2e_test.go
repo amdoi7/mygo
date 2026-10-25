@@ -885,6 +885,39 @@ func TestVibrancyWindowControls(t *testing.T) {
 	}
 }
 
+// TestWindowButtonsTheme draws the window controls of a hidden title bar
+// for a dark background in a light app and for a light one in a dark app,
+// then as the app again (Windows): under the pointer, the backplate of a
+// button is its glyph's color over the gray page, lighter for light glyphs.
+func TestWindowButtonsTheme(t *testing.T) {
+	mygo.Theme.SetSource(mygo.ThemeLight)
+	defer mygo.Theme.SetSource(mygo.ThemeSystem)
+	w := newWindow(t, mygo.WindowOptions{X: 40, Y: 40, Width: 300, Height: 150, TitleBarStyle: mygo.TitleBarHidden,
+		Content: ui.View(func(c *ui.Context) { c.Root().Background(ui.RGB(0x80, 0x80, 0x80)) })})
+	light := func() (light, ok bool) {
+		r, _, _, ok := titleButtonColor(w, "minimize")
+		return r > 0x80, ok && r != 0x80
+	}
+	if _, _, _, ok := titleButtonColor(w, "minimize"); !ok {
+		t.Skip("mygo draws the window controls on Windows")
+	}
+	readable := false
+	for deadline := time.Now().Add(3 * time.Second); !readable && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		l, ok := light()
+		readable = ok && !l
+	}
+	if !readable {
+		t.Skip("the screen does not show the dark glyphs of a light app's window controls")
+	}
+	w.SetWindowButtonsTheme(mygo.ThemeDark)
+	eventually(t, "light glyphs in a light app", func() bool { l, ok := light(); return ok && l })
+	mygo.Theme.SetSource(mygo.ThemeDark)
+	w.SetWindowButtonsTheme(mygo.ThemeLight)
+	eventually(t, "dark glyphs in a dark app", func() bool { l, ok := light(); return ok && !l })
+	w.SetWindowButtonsTheme(mygo.ThemeSystem)
+	eventually(t, "light glyphs again, as the dark app", func() bool { l, ok := light(); return ok && l })
+}
+
 // The toolbar that insets the traffic lights holds no items: in full screen
 // it must hide with the menu bar instead of covering the top of the page.
 func TestFullScreenToolbar(t *testing.T) {

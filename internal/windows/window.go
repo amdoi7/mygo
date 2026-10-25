@@ -59,6 +59,7 @@ type window struct {
 	frameless              bool
 	hiddenTitleBar         bool        // a TitleBarStyle that hides the caption
 	caption                *captionBar // the controls in its place, nil if they failed
+	buttonsTheme           string      // "light" or "dark" for the controls (SetWindowButtonsTheme), "" as the app
 	topEdge                uintptr     // the window over the top resize border of one without a caption (topedge.go), or 0
 	noRedirect             bool        // no redirection bitmap, for a material behind the page
 	fullScreen             bool
@@ -1163,6 +1164,34 @@ func backdropFor(material string) int32 {
 // SetActiveAppearance does nothing: Windows has no way to draw a window
 // that is not active as one that is.
 func (w *window) SetActiveAppearance(bool) {}
+
+// SetWindowButtonsTheme draws the controls of a hidden title bar for a
+// "light" or "dark" background, whatever the app's appearance; "system"
+// follows it again.
+func (w *window) SetWindowButtonsTheme(source string) {
+	if source == "system" {
+		source = ""
+	}
+	if source == w.buttonsTheme {
+		return
+	}
+	w.buttonsTheme = source
+	if w.caption != nil {
+		w.caption.paint()
+	}
+}
+
+// buttonsDark reports whether the controls of a hidden title bar draw for
+// a dark background: as SetWindowButtonsTheme says, else as the app.
+func (w *window) buttonsDark() bool {
+	switch w.buttonsTheme {
+	case "dark":
+		return true
+	case "light":
+		return false
+	}
+	return w.b.isDark()
+}
 
 func (w *window) SetVibrancy(material string) {
 	w.vibrancy = material

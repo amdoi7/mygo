@@ -473,6 +473,10 @@ type Window interface {
 	// SetActiveAppearance keeps the window drawn as active, as the key
 	// window of the app in front, while it is not (macOS).
 	SetActiveAppearance(v bool)
+	// SetWindowButtonsTheme draws the controls of a hidden title bar for a
+	// "light" or "dark" background whatever the app's appearance, or
+	// follows it again with "system" (Windows).
+	SetWindowButtonsTheme(source string)
 	// SetProgressBar shows progress on the taskbar button, Dock icon or
 	// launcher entry: state is "" (none), "normal", "indeterminate",
 	// "paused" or "error", value between 0 and 1.

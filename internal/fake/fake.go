@@ -686,6 +686,8 @@ func (w *Window) SetContentProtection(bool)  {}
 func (w *Window) SetVibrancy(string)         {}
 func (w *Window) SetActiveAppearance(v bool) { w.mu.Lock(); w.active = v; w.mu.Unlock() }
 
+func (w *Window) SetWindowButtonsTheme(string) {}
+
 // ActiveAppearance reports what SetActiveAppearance set last.
 func (w *Window) ActiveAppearance() bool             { w.mu.Lock(); defer w.mu.Unlock(); return w.active }
 func (w *Window) SetMenu(m *platform.Menu)           { w.mu.Lock(); w.menu = m; w.mu.Unlock() }
