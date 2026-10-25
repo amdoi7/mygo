@@ -183,7 +183,8 @@ type engine struct {
 	webOut    []placedWebView
 	webShown  bool
 	// maxButton is where the frame shows the window's maximize button
-	// (MaximizeButton), and maxSent what the host got of it.
+	// (MaximizeButton), and maxSent what the host got of it, in the
+	// window's DIPs.
 	maxButton, maxSent Rect
 	// The focus groups of the frame, the group of each element of the
 	// focus order in one, and the element of each that had the focus
@@ -630,9 +631,10 @@ func (rt *engine) runFrame() {
 	rt.insp.lap(2)
 	rt.host.present(&rt.scene)
 	rt.placeWebViews()
-	if rt.maxButton != rt.maxSent {
-		rt.maxSent = rt.maxButton
-		rt.host.setMaximizeButton(rt.maxButton)
+	// The window hit-tests its maximize button in its own DIPs.
+	if r := rt.windowRect(rt.maxButton); r != rt.maxSent {
+		rt.maxSent = r
+		rt.host.setMaximizeButton(r)
 	}
 	rt.stats.lap(phasePresent)
 	rt.prune()

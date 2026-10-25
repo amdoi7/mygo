@@ -122,18 +122,26 @@ func (rt *engine) windowAccess(t *platform.AccessTree) *platform.AccessTree {
 }
 
 // windowWebViews maps where the frame shows its web views to the window's
-// DIPs.
+// DIPs, in place: views is the frame's own (webViewPlacements).
 func (rt *engine) windowWebViews(views []placedWebView) []placedWebView {
 	if !rt.zoomed() {
 		return views
 	}
-	out := make([]placedWebView, len(views))
-	for i, v := range views {
-		covers := make([]platform.RectF, len(v.covers))
-		for j, c := range v.covers {
-			covers[j] = rt.toWindow(c)
+	for i := range views {
+		v := &views[i]
+		v.frame, v.clip = rt.toWindow(v.frame), rt.toWindow(v.clip)
+		for j := range v.covers {
+			v.covers[j] = rt.toWindow(v.covers[j])
 		}
-		out[i] = placedWebView{v: v.v, frame: rt.toWindow(v.frame), clip: rt.toWindow(v.clip), covers: covers}
 	}
-	return out
+	return views
+}
+
+// windowRect maps a rectangle of the content to the window's DIPs.
+func (rt *engine) windowRect(r Rect) Rect {
+	if !rt.zoomed() {
+		return r
+	}
+	z := rt.contentZoom
+	return Rect{r.X * z, r.Y * z, r.W * z, r.H * z}
 }

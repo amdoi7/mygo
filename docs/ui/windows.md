@@ -49,9 +49,9 @@ is not a picture of the window scaled up: frames draw at the screen's
 resolution times `z`, so text, icons, vectors, images and their edges
 stay as sharp as at that size natively, and the window's frames keep
 their size in pixels. A zoom of 2 on a screen of scale 2 draws the frame
-a screen of scale 4 would, glyphs and all; unzoomed, nothing changes, and
-text keeps its subpixel antialiasing. The zoom stays until set again,
-between 0.25 and 5; `c.Zoom()` returns it, 1 for none.
+a screen of scale 4 would, glyphs and all; unzoomed, nothing changes. The
+zoom stays until set again, between 0.25 and 5; `c.Zoom()` returns it, 1
+for none.
 
 ```go
 c.SetZoom(app.zoom) // 1.25 for 125%, every frame or once
@@ -64,11 +64,12 @@ A frame that sets another zoom builds again at the new size before it
 shows. What leaves the content goes to the window in its DIPs: the
 pointer hits what the zoom shows under it, input methods compose at the
 caret, assistive technology outlines elements where they show, context
-menus and drags start under the pointer and web views take the box
-the content gives them. A touchpad scrolls the content as far as the
-fingers move; a wheel's lines scroll as far as unzoomed. The window
-controls keep their size: `c.TitleBar()` is the room they take, zoomed,
-so that a title bar laid out clear of them stays clear.
+menus and drags start under the pointer, web views take the box the
+content gives them, and a `MaximizeButton` shows Windows' snap layouts
+where it shows. A touchpad scrolls the content as far as the fingers
+move; a wheel's lines scroll as far as unzoomed. The window controls keep
+their size: `c.TitleBar()` is the room they take, zoomed, so that a title
+bar laid out clear of them stays clear.
 
 A transform's `Scale`, by contrast, scales what is drawn at the content's
 own size: its text is drawn as bitmaps of their untransformed size,

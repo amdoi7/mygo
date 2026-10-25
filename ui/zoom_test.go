@@ -280,14 +280,21 @@ func TestZoomSetByTheView(t *testing.T) {
 // menus' places.
 func TestZoomTellsTheWindowsCoordinates(t *testing.T) {
 	value := "Ada"
+	page := &testWebView{"page"}
 	view := func(c *context) {
 		coreColumn(c).Padding(10).Gap(10).Children(func() {
 			coreTextInput(c, &value).Width(120).Label("Name").AutoFocus()
 			coreRow(c).Padding(8).Children(func() { coreText(c, "Report") }).ContextMenu(func(m *Menu) { m.Item("Open") })
+			coreBox(c).Size(30, 20).MaximizeButton()
+			coreWebView(c, page).Size(100, 40).Children(func() {
+				coreText(c, "Badge").Absolute().Top(4).Left(4)
+			})
 		})
 	}
+	var maxButton [3]Rect
+	var webView [3]placedWebView
 	caret := func(z float32) (Rect, platform.RectF, [2]float32) {
-		tt := coreNewTester(view, 400, 300)
+		tt := coreNewTester(view, 400, 400)
 		tt.SetZoom(z)
 		tt.send(platform.SurfaceEvent{Kind: platform.AccessibilityOn})
 		r, ok := tt.TextCaret()
@@ -295,6 +302,8 @@ func TestZoomTellsTheWindowsCoordinates(t *testing.T) {
 			t.Fatalf("zoom %v: no caret", z)
 		}
 		field := accessNode(t, tt.h.access, platform.RoleTextField, "Name")
+		maxButton[int(z)] = tt.h.maxButton
+		webView[int(z)], _ = placed(tt, page)
 		if err := tt.RightClick("Report"); err != nil {
 			t.Fatal(err)
 		}
@@ -311,5 +320,16 @@ func TestZoomTellsTheWindowsCoordinates(t *testing.T) {
 	}
 	if !near(float64(m2[0]), 2*float64(m1[0])) || !near(float64(m2[1]), 2*float64(m1[1])) {
 		t.Errorf("context menu at %v zoomed 2 times, %v unzoomed", m2, m1)
+	}
+	if b1, b2 := maxButton[1], maxButton[2]; b1.W == 0 || b2 != (Rect{2 * b1.X, 2 * b1.Y, 2 * b1.W, 2 * b1.H}) {
+		t.Errorf("maximize button at %v zoomed 2 times, %v unzoomed", b2, b1)
+	}
+	w1, w2 := webView[1], webView[2]
+	double := func(r platform.RectF) platform.RectF {
+		return platform.RectF{X: 2 * r.X, Y: 2 * r.Y, W: 2 * r.W, H: 2 * r.H}
+	}
+	if w1.frame.W == 0 || w2.frame != double(w1.frame) || w2.clip != double(w1.clip) ||
+		len(w1.covers) != 1 || len(w2.covers) != 1 || w2.covers[0] != double(w1.covers[0]) {
+		t.Errorf("web view placed at %+v zoomed 2 times, %+v unzoomed", w2, w1)
 	}
 }
