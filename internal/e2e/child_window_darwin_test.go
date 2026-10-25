@@ -134,23 +134,26 @@ func TestChildWindowHidesWithParent(t *testing.T) {
 // where it stays, showing, rather than being pulled back to its parent's
 // or ordered out, and goes above its parent as the parent is raised. It
 // needs two displays; MYGO_E2E_OTHER_DISPLAY=x,y is where on the other
-// one the child goes, else near the top-left of the second display's work
-// area.
+// one the child goes, else near the top-left of the work area of a display
+// that is not the parent's.
 func TestChildWindowOnAnotherDisplay(t *testing.T) {
 	displays := mygo.Screen.Displays()
 	if len(displays) < 2 {
 		t.Skip("one display")
 	}
 	o := childWindowsOrigin(t)
-	there, ok := pointFromEnv(t, "MYGO_E2E_OTHER_DISPLAY")
-	if !ok {
-		work := displays[1].WorkArea
-		there = mygo.Point{X: work.X + 60, Y: work.Y + 60}
-	}
 	parent := newWindow(t, mygo.WindowOptions{Title: "Parent on the first display", Width: 400, Height: 300, X: o.X, Y: o.Y})
 	child := newWindow(t, mygo.WindowOptions{Title: "Child moving across displays", Parent: parent, Width: 240, Height: 180, X: o.X + 40, Y: o.Y + 40})
 	waitOnScreen(child)
 	home := mygo.Screen.DisplayMatching(parent.Bounds())
+	there, ok := pointFromEnv(t, "MYGO_E2E_OTHER_DISPLAY")
+	if !ok {
+		// The first display that is not the parent's, which need not be
+		// the primary one, nor the first listed.
+		i := slices.IndexFunc(displays, func(d mygo.Display) bool { return d.ID != home.ID })
+		work := displays[i].WorkArea
+		there = mygo.Point{X: work.X + 60, Y: work.Y + 60}
+	}
 	other := mygo.Screen.DisplayMatching(mygo.Rectangle{X: there.X, Y: there.Y, Width: 240, Height: 180})
 	if other.ID == home.ID {
 		t.Fatalf("the other display's point %+v is on the parent's display %d", there, home.ID)
@@ -172,4 +175,24 @@ func TestChildWindowOnAnotherDisplay(t *testing.T) {
 	if !child.IsVisible() {
 		t.Error("the child on the other display was ordered out")
 	}
+}
+
+// TestChildPanelAboveRaisedParent raises the parent of a child window that
+// is a panel (WindowOptions.Panel), which NSApp's orderedWindows leaves
+// out: it goes back above its parent too, and hides and shows with it.
+func TestChildPanelAboveRaisedParent(t *testing.T) {
+	o := childWindowsOrigin(t)
+	parent := newWindow(t, mygo.WindowOptions{Title: "Child panel's parent", Width: 500, Height: 400, X: o.X, Y: o.Y})
+	panel := newWindow(t, mygo.WindowOptions{Title: "Child panel", Parent: parent, Panel: true, Width: 260, Height: 200, X: o.X + 40, Y: o.Y + 40})
+	waitOnScreen(panel)
+	eventually(t, "the panel above its parent", func() bool { return inFrontOf(panel, parent) })
+
+	parent.Focus()
+	eventually(t, "the parent focused", parent.IsFocused)
+	eventually(t, "the panel above its raised parent", func() bool { return inFrontOf(panel, parent) })
+
+	parent.Hide()
+	eventually(t, "the panel hidden with its parent", func() bool { return !panel.IsVisible() })
+	parent.Show()
+	eventually(t, "the panel back above its parent", func() bool { return panel.IsVisible() && inFrontOf(panel, parent) })
 }
