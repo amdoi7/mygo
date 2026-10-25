@@ -726,14 +726,22 @@ func TestGlass(t *testing.T) {
 		t.Errorf("material %s, style %d, corners %v; want the clear glass, or the HUD material before macOS 26, cut to 16", class, style, radius)
 	}
 	// Without SetActiveAppearance, a window draws as inactive once the app is.
+	// Focusing other activates the app, done once other is key: it is waited
+	// for so that the activation does not land after the Finder's and bring
+	// the app back in front.
 	other := newWindow(t, mygo.WindowOptions{Width: 200, Height: 100, Frameless: true, Transparent: true, Vibrancy: mygo.VibrancyGlassClear, Content: view})
+	other.Focus()
+	eventually(t, "the other window focused", other.IsFocused)
 	if deactivateApp() {
 		eventually(t, "the app deactivated", func() bool { active, _ := appActive(); return !active })
+		// The Finder can be frontmost before AppKit has told the app that it
+		// resigned active, which the windows draw by. So other's appearance
+		// is waited for, and w's is checked once the app is known inactive.
+		if !wait.Poll(func() bool { _, _, _, active, _ := material(other); return !active }) {
+			t.Error("a window without SetActiveAppearance draws as active with another app in front")
+		}
 		if _, _, _, active, _ := material(w); !active {
 			t.Error("with another app in front, the window no longer draws as active")
-		}
-		if _, _, _, active, _ := material(other); active {
-			t.Error("a window without SetActiveAppearance draws as active with another app in front")
 		}
 	}
 	w.SetVibrancy(mygo.VibrancyPopover)
