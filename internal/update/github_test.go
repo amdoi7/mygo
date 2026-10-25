@@ -114,3 +114,64 @@ func TestResolvePrereleaseFeed(t *testing.T) {
 		t.Errorf("ResolvePrereleaseFeed = %s, %v", got, err)
 	}
 }
+
+func TestResolvePrereleaseFeedPages(t *testing.T) {
+	rel := func(tag string, pre bool) string {
+		return fmt.Sprintf(`{"tag_name": %q, "draft": false, "prerelease": %t}`, tag, pre)
+	}
+	// nightlies returns n prereleases, newest first.
+	nightlies := func(n int) []string {
+		rs := make([]string, n)
+		for i := range rs {
+			rs[i] = rel(fmt.Sprintf("v2.0.0-nightly.%d", n-i), true)
+		}
+		return rs
+	}
+	page := func(rs ...string) string { return "[" + strings.Join(rs, ",") + "]" }
+	latest := "https://github.com/me/app/releases/latest/download/update-linux-amd64.json"
+	for _, c := range []struct {
+		name  string
+		pages []string
+		want  string
+		reads int
+	}{
+		{"a full page with a stable release", []string{
+			page(append(nightlies(releasesPerPage-1), rel("v1.9.0", false))...),
+			page(rel("v3.0.0-beta.1", true)), // listed after v1.9.0: not read
+		}, "v2.0.0-nightly.99", 1},
+		{"prereleases only on the first page", []string{
+			page(nightlies(releasesPerPage)...),
+			page(rel("v2.0.0-beta.1", true), rel("v1.9.0", false)),
+			page(rel("v1.0.0", false)),
+		}, "v2.0.0-nightly.100", 2},
+		{"a stable release after the prereleases", []string{
+			page(nightlies(releasesPerPage)...),
+			page(rel("v2.0.0", false)),
+		}, "v2.0.0", 2},
+	} {
+		reads := 0
+		get := func(_ context.Context, u string) (io.ReadCloser, error) {
+			reads++
+			for i, p := range c.pages {
+				if u == fmt.Sprintf("https://api.github.com/repos/me/app/releases?per_page=100&page=%d", i+1) {
+					return io.NopCloser(strings.NewReader(p)), nil
+				}
+			}
+			return nil, fmt.Errorf("GET %s", u)
+		}
+		want := "https://github.com/me/app/releases/download/" + c.want + "/update-linux-amd64.json"
+		if got, err := ResolvePrereleaseFeed(context.Background(), latest, get); err != nil || got != want {
+			t.Errorf("%s: ResolvePrereleaseFeed = %s, %v, want %s", c.name, got, err, want)
+		}
+		if reads != c.reads {
+			t.Errorf("%s: read %d pages, want %d", c.name, reads, c.reads)
+		}
+	}
+
+	// An error reading the releases, such as the API's rate limit, is the
+	// check's.
+	get := func(context.Context, string) (io.ReadCloser, error) { return nil, errors.New("GET: 403 Forbidden") }
+	if _, err := ResolvePrereleaseFeed(context.Background(), latest, get); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Errorf("rate limited: err = %v", err)
+	}
+}

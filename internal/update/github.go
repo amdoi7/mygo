@@ -33,7 +33,8 @@ type Getter func(ctx context.Context, url string) (io.ReadCloser, error)
 // GitHubAPI is the GitHub REST API, which tests replace.
 var GitHubAPI = "https://api.github.com"
 
-// Pages of releases that ResolveFeed reads at most, of releasesPerPage.
+// Pages of releases that ResolveFeed and ResolvePrereleaseFeed read at
+// most, of releasesPerPage.
 const (
 	releasesPerPage = 100
 	maxReleasePages = 10
@@ -101,11 +102,12 @@ func latestTagged(ctx context.Context, get Getter, repo, prefix string) (string,
 }
 
 // ResolvePrereleaseFeed is ResolveFeed for apps that take prereleases
-// too: for a feed of GitHub releases, tagged (TaggedFeed) or of the latest
-// release, the manifest of the release of the highest version (Compare)
-// that is not a draft, a prerelease or not, among those with the tag's
-// prefix ("v" for the feed of the latest release, the prefix of mygo build
-// without one). Other feeds are the URL of the manifest.
+// too. For a feed of GitHub releases, of the latest release or tagged
+// (TaggedFeed), it returns the manifest of the release with the highest
+// version (Compare) that is not a draft, a prerelease or not, among the
+// releases tagged with the feed's prefix: "v" for the feed of the latest
+// release, mygo build's default tagPrefix. Other feeds are the URL of the
+// manifest, as with ResolveFeed.
 func ResolvePrereleaseFeed(ctx context.Context, feed string, get Getter) (string, error) {
 	repo, prefix, name, ok := parseGitHubFeed(feed)
 	if !ok {
@@ -147,7 +149,11 @@ func parseGitHubFeed(feed string) (repo, prefix, name string, ok bool) {
 }
 
 // highestTagged returns the tag of the release of repo tagged prefix and
-// the highest version that is not a draft.
+// the highest version that is not a draft. It reads the pages of releases,
+// newest first, up to the one that holds the newest release that is not a
+// prerelease, the one latestTagged finds: releases listed after it are
+// taken as not newer, so that a repository of many releases still costs
+// one request a check.
 func highestTagged(ctx context.Context, get Getter, repo, prefix string) (string, error) {
 	var best, bestVersion string
 	for page := 1; page <= maxReleasePages; page++ {
@@ -156,16 +162,18 @@ func highestTagged(ctx context.Context, get Getter, repo, prefix string) (string
 		if err != nil {
 			return "", err
 		}
+		stable := false
 		for _, r := range releases {
 			v, ok := strings.CutPrefix(r.TagName, prefix)
 			if r.Draft || !ok || v == "" || v[0] < '0' || v[0] > '9' {
 				continue
 			}
+			stable = stable || !r.Prerelease
 			if best == "" || Compare(v, bestVersion) > 0 {
 				best, bestVersion = r.TagName, v
 			}
 		}
-		if len(releases) < releasesPerPage {
+		if stable || len(releases) < releasesPerPage {
 			break
 		}
 	}
