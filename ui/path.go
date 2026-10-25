@@ -240,15 +240,23 @@ func (f *flatPath) poly(i int) [][2]float32 {
 	return f.pts[f.starts[i]:end]
 }
 
-// flatten sets f to the path's subpaths as polylines in device pixels.
-func (p *Path) flatten(f *flatPath, scale float32) {
+// reset empties f, untrimmed, to be stroked round and whole, retaining
+// its memory: StrokePolyline fills it in as it is, flatten as its path
+// says.
+func (f *flatPath) reset() {
 	f.pts, f.starts, f.closed = f.pts[:0], f.starts[:0], f.closed[:0]
 	f.trimmed, f.kept = false, 0
-	f.cap, f.join, f.miter = p.cap, p.join, p.miter
-	if f.miter == 0 {
-		f.miter = 4
+	f.cap, f.join, f.miter = RoundCap, RoundJoin, 4
+	f.dash, f.period, f.phase = f.dash[:0], 0, f.phase[:0]
+}
+
+// flatten sets f to the path's subpaths as polylines in device pixels.
+func (p *Path) flatten(f *flatPath, scale float32) {
+	f.reset()
+	f.cap, f.join = p.cap, p.join
+	if p.miter != 0 {
+		f.miter = p.miter
 	}
-	f.dash, f.period = f.dash[:0], 0
 	for _, l := range p.dash {
 		f.dash = append(f.dash, l*scale)
 		f.period += l * scale
@@ -308,7 +316,6 @@ func (p *Path) flatten(f *flatPath, scale float32) {
 	}
 	flush()
 	offset := p.dashOffset * scale
-	f.phase = f.phase[:0]
 	if len(f.dash) > 0 {
 		for range f.polys() {
 			f.phase = append(f.phase, offset)
