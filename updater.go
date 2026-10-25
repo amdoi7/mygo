@@ -344,6 +344,9 @@ func relaunchNow() {
 	if launchedByDev() {
 		os.Exit(devRelaunchCode)
 	}
+	if runtime.GOOS == "darwin" && openBundle() {
+		return
+	}
 	// The executable the app started from, which an update may have
 	// replaced.
 	cmd := exec.Command(startExe, os.Args[1:]...)
@@ -355,6 +358,25 @@ func relaunchNow() {
 	if cmd.Start() == nil {
 		_ = cmd.Process.Release()
 	}
+}
+
+// openBundle starts the app bundle again through Launch Services, as the
+// Dock does, reporting whether it did. A child of this process would stay
+// in this instance's coalition, which has no app once this instance exits:
+// when an app that the new instance started quits, as one a terminal's
+// shell ran, loginwindow takes the coalition's other processes for that
+// app's and ends them with SIGTERM.
+func openBundle() bool {
+	bundle, err := installTarget()
+	if err != nil {
+		return false
+	}
+	// -n: this instance still runs, and would only be brought forward.
+	args := []string{"-n", bundle}
+	if len(os.Args) > 1 {
+		args = append(append(args, "--args"), os.Args[1:]...)
+	}
+	return exec.Command("/usr/bin/open", args...).Run() == nil
 }
 
 // cleanUpdateLeftovers removes what an update could not remove while the
