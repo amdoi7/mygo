@@ -763,7 +763,9 @@ type MenuItem struct {
 	Visible     bool
 	Checked     bool
 	ToolTip     string
-	Submenu     *Menu
+	// Icon is the image beside the label, nil for none.
+	Icon    *MenuIcon
+	Submenu *Menu
 }
 
 // FileFilter restricts the files shown in file dialogs.

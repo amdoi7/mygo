@@ -103,6 +103,7 @@ framework safely. Read it before changing anything under `internal/`.
 │   ├── i18nlink/       what package i18n gives MyGo's own catalog only: a catalog that links no dates
 │   ├── l10n/           MyGo's own strings: the catalog of the controls and menu roles
 │   ├── accelerator/    parses "CmdOrCtrl+Shift+K"
+│   ├── menuicon/       menu items' PNG icons as premultiplied, scaled pixels (Windows)
 │   ├── update/         update manifests, signatures, archives and delta updates
 │   ├── idlemem/        measures apps' memory once idle, for the benchmarks
 │   ├── inputlatency/   measures how long input takes to reach the screen in native UI (macOS)
@@ -1722,6 +1723,16 @@ backend, which:
   `AppHandler.MenuItemClicked` for menus without one; the core toggles
   checkbox/radio state, performs window and view roles and calls `Click`
   with the menu's window, even while a submenu has focus instead.
+
+Item icons (`MenuItem.Icon`, made by `NewMenuIcon`) travel as a
+`*platform.MenuIcon`, which the core shares between the icons of the same
+PNG (interned by content, held weakly): backends tell a change by the
+pointer and decode an image once (`MenuIcon.Native`), freeing what they
+made with `runtime.AddCleanup` or with the menus that show it. Their code
+is linked by `NewMenuIcon` (`LinkMenuIcons`), not by the backends' menus.
+Backends that keep a snapshot to build menus from later (Windows' trays,
+the application menu of new windows) keep it current with the updates they
+get (`Menu.Apply`).
 
 macOS gets a default menu bar (App, File, Edit, View, Window), which is what
 makes Cmd+C/V/Q work; other platforms get none unless the app sets one.
@@ -4436,6 +4447,7 @@ which npm allows only for packages that exist: the first release uses an
 |---|---|---|---|
 | watching files | FSEvents, one stream per tree, no descriptor per file | inotify, per directory | `ReadDirectoryChangesW`, one for a recursive tree, and the parent to see the directory renamed |
 | menu bar | application menu bar, default menu installed | per-window GTK menu bar, none by default | per-window Win32 menu bar, none by default |
+| menu item icons | `NSMenuItem` image, 16 pt, template images tinted | a `GtkBox` of a `GtkImage` (a cairo surface at the widget's scale) and the label; none on the bar's own items; tray menus' items get `icon-data` over DBusMenu (`dbusmenu_gtk_parse_get_cached_item`) | Windows 11: drawn by MyGo in a column after the checks' (premultiplied BGRA, `internal/menuicon`); Windows 10: `hbmpItem`, a 32-bit premultiplied DIB section freed with its menu; none on the bar's own items |
 | auto-hide menu bar | ignored | the bar widget hides; `can-activate-accel` keeps its shortcuts; Alt alone or F10 show it and open its first menu until it deactivates | the menu is attached only for the `SC_KEYMENU` menu loop that Alt alone or F10 start; shortcuts come from the webview |
 | tray | NSStatusItem, click events | AppIndicator: a menu, and activation (a double click) for an icon with an `OnClick` listener | notification area icon, click events |
 | global shortcuts | Carbon hot keys | X11: `XGrabKey` on the root window (with Caps/Num Lock variants), key presses from a GDK filter. Wayland: the XDG `GlobalShortcuts` portal (see [Linux](#linux-internallinux)) | `RegisterHotKey` |
