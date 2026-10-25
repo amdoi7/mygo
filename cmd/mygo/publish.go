@@ -126,6 +126,11 @@ func publishGitHub(c *Config, artifacts []string) error {
 		}
 		t.done("Uploaded " + uploadNames(batch))
 	}
+	// A version such as 1.3.0-beta.1 is published as a prerelease, which
+	// only apps that take prereleases (Updater.SetPrereleases) update to.
+	if v, _, _ := strings.Cut(c.Version, "+"); strings.Contains(v, "-") {
+		latest += " --prerelease"
+	}
 	logf("Uploaded to the release %s of %s; publish it when every platform is there:\n  gh release edit %s --repo %s --draft=false%s", tag, repo, tag, repo, latest)
 	return nil
 }
