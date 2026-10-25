@@ -107,9 +107,13 @@ func (u *UpdaterModule) Check(ctx context.Context) (*Update, error) {
 // SetPrereleases makes Check offer prereleases too, such as 1.3.0-beta.1,
 // for the users of an app who chose its beta: with updates on GitHub,
 // Check then reads the release of the highest version that is not a
-// draft, through the GitHub API (one request a check), so that a release
-// newer than the prereleases is offered too. Updates of updates.url are
-// the manifest the server has, whichever is set. It is off at launch.
+// draft, through the GitHub API (usually one request a check), so that a
+// release newer than the prereleases is offered too. Check never offers a
+// version older than the running one, so turning it off waits for the
+// release after the prerelease the app runs. Updates of updates.url are
+// the manifest the server has, whichever is set. It is off at launch; the
+// app keeps the user's choice and sets it again. It may be called from
+// any goroutine.
 func (u *UpdaterModule) SetPrereleases(on bool) { prereleases.Store(on) }
 
 // Prereleases reports whether Check offers prereleases (SetPrereleases).

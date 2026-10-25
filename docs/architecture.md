@@ -1576,7 +1576,13 @@ as in Tauri:
   delta step resolve it in Go, and `install.sh` in sh (`latest_tag`, which
   reads the `tag_name`, `draft` and `prerelease` fields in order). Such
   drafts are made with `--latest=false`, and published the same way, so
-  the repository's latest release stays the others'. With `updates.s3` it puts the
+  the repository's latest release stays the others'. While the app turns
+  prereleases on (`Updater.SetPrereleases`, an `atomic.Bool` that `Check`
+  reads once), `Check` resolves the feed of the latest release (with the
+  prefix `v`) and tagged feeds alike with `update.ResolvePrereleaseFeed`
+  instead: the manifest of the release with the highest version
+  (`update.Compare`) that is not a draft, among the pages of releases up to
+  the one holding the newest release that is not a prerelease. With `updates.s3` it puts the
   same files, manifests last, into a bucket of S3 or a compatible service
   (`cmd/mygo/s3.go`): one `PUT` per object, signed with AWS Signature
   Version 4 in pure Go (`crypto/hmac`), its SHA-256 payload hash checked
