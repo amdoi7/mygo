@@ -209,8 +209,14 @@ func childOrder[W comparable](front []W, shows func(W) bool, hidden []W, rank fu
 			kids = append(kids, x)
 		}
 	}
+	// An insertion sort, stable: a window has few children, and
+	// slices.SortStableFunc would add its code to every app.
 	hidden = slices.Clone(hidden)
-	slices.SortStableFunc(hidden, func(a, b W) int { return rank(a) - rank(b) })
+	for i := 1; i < len(hidden); i++ {
+		for j := i; j > 0 && rank(hidden[j]) < rank(hidden[j-1]); j-- {
+			hidden[j], hidden[j-1] = hidden[j-1], hidden[j]
+		}
+	}
 	for _, x := range hidden {
 		if !slices.Contains(kids, x) {
 			kids = append(kids, x)
