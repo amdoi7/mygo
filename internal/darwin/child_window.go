@@ -113,9 +113,11 @@ func (w *window) orderAbove(rel id) {
 
 // orderChildrenLater orders w's child windows above it once the current
 // event is handled: AppKit is still ordering w, or making it key, when it
-// tells. Once for the calls made before then.
+// tells. Once for the calls made before then, and not at all for a
+// window without children, as most are: AppKit tells of every ordering of
+// every window.
 func (w *window) orderChildrenLater() {
-	if w.orderPending || w.closed {
+	if w.orderPending || w.closed || !w.hasChildren() {
 		return
 	}
 	w.orderPending = true
@@ -158,7 +160,7 @@ func (w *window) orderChildren() id {
 // hideChildren orders out w's child windows that show, and theirs, as w
 // hides or miniaturizes, remembering them to show again with it.
 func (w *window) hideChildren() {
-	if w.b.orderingChildren {
+	if w.b.orderingChildren || !w.hasChildren() {
 		return
 	}
 	w.b.orderingChildren = true
