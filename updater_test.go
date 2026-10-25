@@ -141,10 +141,19 @@ func TestUpdater(t *testing.T) {
 	if err != nil || up == nil || up.Version != "1.2.0" || up.Notes != "- Faster" || up.Date.Year() != 2026 {
 		t.Fatalf("checkUpdate = %+v, %v", up, err)
 	}
-	for _, current := range []string{"1.2.0", "1.10.0"} {
+	// An app on a prerelease, whose user turned prereleases off, takes no
+	// older version, and the release of its version once there is one.
+	for _, current := range []string{"1.2.0", "1.10.0", "1.3.0-beta.1"} {
 		if up, err := checkUpdate(ctx, srv.URL+"/update.json", key, current, false); up != nil || err != nil {
 			t.Errorf("checkUpdate from %s = %+v, %v", current, up, err)
 		}
+	}
+	if up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.2.0-rc.1", false); err != nil || up == nil || up.Version != "1.2.0" {
+		t.Errorf("checkUpdate from 1.2.0-rc.1 = %+v, %v", up, err)
+	}
+	// Feeds of updates.url are the same with prereleases on.
+	if up, err := checkUpdate(ctx, srv.URL+"/update.json", key, "1.1.9", true); err != nil || up == nil || up.Version != "1.2.0" {
+		t.Errorf("checkUpdate with prereleases = %+v, %v", up, err)
 	}
 	if _, err := checkUpdate(ctx, "http://example.com/update.json", key, "1.0.0", false); err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Errorf("plain HTTP: %v", err)
@@ -277,5 +286,29 @@ func TestUpdaterWaitsForOpenFiles(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(main); string(b) != "v2" {
 		t.Errorf("after the update main = %q", b)
+	}
+}
+
+func TestUpdaterPrereleases(t *testing.T) {
+	t.Cleanup(func() { Updater.SetPrereleases(false) })
+	if Updater.Prereleases() {
+		t.Error("prereleases are on at launch")
+	}
+	// Check may run on another goroutine.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 100 {
+			Updater.Prereleases()
+		}
+	}()
+	Updater.SetPrereleases(true)
+	<-done
+	if !Updater.Prereleases() {
+		t.Error("SetPrereleases(true) did not turn them on")
+	}
+	Updater.SetPrereleases(false)
+	if Updater.Prereleases() {
+		t.Error("SetPrereleases(false) did not turn them off")
 	}
 }
