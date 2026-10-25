@@ -325,11 +325,15 @@ func TestZoomTellsTheWindowsCoordinates(t *testing.T) {
 		t.Errorf("maximize button at %v zoomed 2 times, %v unzoomed", b2, b1)
 	}
 	w1, w2 := webView[1], webView[2]
-	double := func(r platform.RectF) platform.RectF {
-		return platform.RectF{X: 2 * r.X, Y: 2 * r.Y, W: 2 * r.W, H: 2 * r.H}
+	// Lines snap to pixels in the zoomed layout as in the unzoomed one, so
+	// with a platform's own fonts (Core Text) what lies below text can land
+	// up to a DIP of the window from twice its unzoomed place.
+	doubled := func(z, r platform.RectF) bool {
+		within := func(a, b float64) bool { return math.Abs(a-2*b) <= 1 }
+		return within(z.X, r.X) && within(z.Y, r.Y) && within(z.W, r.W) && within(z.H, r.H)
 	}
-	if w1.frame.W == 0 || w2.frame != double(w1.frame) || w2.clip != double(w1.clip) ||
-		len(w1.covers) != 1 || len(w2.covers) != 1 || w2.covers[0] != double(w1.covers[0]) {
+	if w1.frame.W == 0 || !doubled(w2.frame, w1.frame) || !doubled(w2.clip, w1.clip) ||
+		len(w1.covers) != 1 || len(w2.covers) != 1 || !doubled(w2.covers[0], w1.covers[0]) {
 		t.Errorf("web view placed at %+v zoomed 2 times, %+v unzoomed", w2, w1)
 	}
 }
