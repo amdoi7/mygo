@@ -51,17 +51,29 @@ func writeChecksums(dir string, artifacts []string) (string, error) {
 
 // mergeChecksums adds to the SHA256SUMS at path the lines of earlier, as
 // those of an earlier upload to the same release, for the files it does
-// not list.
-func mergeChecksums(path string, earlier []byte) error {
+// not list. With version, the version of this upload, it leaves out the
+// files of other versions that this upload replaces, as where the files
+// of every version are side by side (updates.s3): a line whose name is
+// that of a file listed at path with another version in place of version.
+func mergeChecksums(path string, earlier []byte, version string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 	sums := parseChecksums(data)
-	for name, sum := range parseChecksums(earlier) {
-		if _, ok := sums[name]; !ok {
-			sums[name] = sum
+	var replaced []*regexp.Regexp
+	if version != "" {
+		for name := range sums {
+			if before, after, ok := strings.Cut(name, version); ok {
+				replaced = append(replaced, regexp.MustCompile(`^`+regexp.QuoteMeta(before)+`\S+`+regexp.QuoteMeta(after)+`$`))
+			}
 		}
+	}
+	for name, sum := range parseChecksums(earlier) {
+		if _, ok := sums[name]; ok || slices.ContainsFunc(replaced, func(re *regexp.Regexp) bool { return re.MatchString(name) }) {
+			continue
+		}
+		sums[name] = sum
 	}
 	return os.WriteFile(path, formatChecksums(sums), 0o644)
 }

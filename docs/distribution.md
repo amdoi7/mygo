@@ -539,10 +539,17 @@ usual, from Settings > Apps.
 Builds with updates write `SHA256SUMS`, the SHA-256 of the installers,
 archives and scripts in the format of `sha256sum`, to the output
 directory, which `-upload` publishes with them, merging the lines of
-earlier uploads of other platforms to the same GitHub release. It names
+earlier uploads of other platforms: those of the same GitHub release, or
+those of the `SHA256SUMS` that `updates.url` serves for `updates.s3`,
+without the files of earlier versions that the upload replaces. It names
 the files as the build does; GitHub turns the spaces of uploaded names
-into dots, which `install.ps1` follows. With `updates.url`, publish the
-scripts and `SHA256SUMS` next to the manifests.
+into dots, which `install.ps1` follows. With `updates.url` and your own
+server, publish the scripts and `SHA256SUMS` next to the manifests, with
+the lines of every platform's latest files.
+
+`SHA256SUMS` is not signed: it catches a download that is broken or cut
+short, not a release whose files someone replaced. On Windows, sign the
+installer ([code signing](#code-signing)) so that Windows shows who made it.
 
 For testing, `MY_APP_DOWNLOAD_URL` (the slug of the app in capitals) is
 where both scripts download from instead, `MY_APP_INSTALL_DIR` the folder

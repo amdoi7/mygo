@@ -3,12 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // checkUpload checks, before a build, that -upload has somewhere to upload
@@ -140,14 +142,23 @@ func mergeReleaseChecksums(gh, repo, tag string, files []string) error {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	if exec.Command(gh, "release", "download", tag, "--repo", repo, "--pattern", checksumsName, "--dir", dir).Run() != nil {
+	out, err := exec.Command(gh, "release", "view", tag, "--repo", repo, "--json", "assets", "--jq", ".assets[].name").Output()
+	if err != nil {
+		return fmt.Errorf("gh release view %s: %v", tag, err)
+	}
+	if !slices.Contains(strings.Split(string(out), "\n"), checksumsName) {
 		return nil // none yet
+	}
+	// Uploading without the lines of the other builds would leave their
+	// files unchecked, and install.ps1 without its installer.
+	if out, err := exec.Command(gh, "release", "download", tag, "--repo", repo, "--pattern", checksumsName, "--dir", dir).CombinedOutput(); err != nil {
+		return fmt.Errorf("gh release download %s %s: %v\n%s", tag, checksumsName, err, out)
 	}
 	earlier, err := os.ReadFile(filepath.Join(dir, checksumsName))
 	if err != nil {
-		return nil
+		return err
 	}
-	return mergeChecksums(files[i], earlier)
+	return mergeChecksums(files[i], earlier, "")
 }
 
 // publishS3 uploads the artifacts of a build to the bucket of updates.s3,
@@ -162,6 +173,9 @@ func publishS3(c *Config, artifacts []string) error {
 	if err != nil {
 		return err
 	}
+	if err := mergeS3Checksums(c, files); err != nil {
+		return err
+	}
 	for _, f := range slices.Concat(files, manifests) {
 		name := filepath.Base(f)
 		t := con.start("Uploading " + name)
@@ -172,6 +186,42 @@ func publishS3(c *Config, artifacts []string) error {
 	}
 	logf("Uploaded to s3://%s/%s, which %s serves", bucket.bucket, bucket.prefix, c.Updates.URL)
 	return nil
+}
+
+// mergeS3Checksums merges the SHA256SUMS that updates.url serves, of the
+// builds uploaded before, as of another platform, into the SHA256SUMS
+// among files, which would otherwise replace it without their lines. It
+// leaves out the files of the earlier versions that this upload replaces,
+// as all versions share the bucket.
+func mergeS3Checksums(c *Config, files []string) error {
+	i := slices.IndexFunc(files, func(f string) bool { return filepath.Base(f) == checksumsName })
+	if i < 0 {
+		return nil
+	}
+	u := c.updateFile(checksumsName, true)
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "mygo/"+version)
+	req.Header.Set("Cache-Control", "no-cache")
+	resp, err := (&http.Client{Timeout: time.Minute}).Do(req)
+	if err != nil {
+		return fmt.Errorf("reading the published %s: %w", checksumsName, err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusForbidden:
+		return nil // none yet: a bucket that does not list its objects answers 403
+	default:
+		return fmt.Errorf("reading the published %s: GET %s: %s", checksumsName, u, resp.Status)
+	}
+	earlier, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return fmt.Errorf("reading the published %s: %w", checksumsName, err)
+	}
+	return mergeChecksums(files[i], earlier, c.Version)
 }
 
 // uploadHeader returns the headers of an uploaded file: its type and, for

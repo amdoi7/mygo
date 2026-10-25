@@ -3,11 +3,16 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -40,7 +45,7 @@ func TestChecksums(t *testing.T) {
 
 	// The lines of an earlier upload stay for the files this one lacks.
 	other := strings.Repeat("a", 64)
-	if err := mergeChecksums(path, []byte(other+"  App Setup 1.2.0 arm64.exe\r\n"+other+"  install.sh\njunk\n")); err != nil {
+	if err := mergeChecksums(path, []byte(other+"  App Setup 1.2.0 arm64.exe\r\n"+other+"  install.sh\njunk\n"), ""); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
@@ -60,7 +65,7 @@ func TestPublishGitHubChecksums(t *testing.T) {
 	bin, dist := t.TempDir(), t.TempDir()
 	other := strings.Repeat("b", 64)
 	// gh: the release exists, with the SHA256SUMS of another platform.
-	script := "#!/bin/sh\n[ \"$2\" = download ] || exit 0\nfor a; do last=$a; done\nprintf '" + other + "  App Setup 1.2.0 arm64.exe\\n' > \"$last/SHA256SUMS\"\n"
+	script := "#!/bin/sh\ncase \"$2 $*\" in\n\"view \"*--json*) printf 'App Setup 1.2.0 arm64.exe\\nSHA256SUMS\\n' ;;\ndownload*) [ -z \"$GH_FAIL\" ] || exit 1; for a; do last=$a; done; printf '" + other + "  App Setup 1.2.0 arm64.exe\\n' > \"$last/SHA256SUMS\" ;;\nesac\n"
 	os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	exe := filepath.Join(dist, "App Setup 1.2.0 amd64.exe")
@@ -76,6 +81,12 @@ func TestPublishGitHubChecksums(t *testing.T) {
 	b, _ := os.ReadFile(sums)
 	if !strings.Contains(string(b), other+"  App Setup 1.2.0 arm64.exe\n") || !strings.Contains(string(b), "  App Setup 1.2.0 amd64.exe\n") {
 		t.Errorf("SHA256SUMS:\n%s", b)
+	}
+	// The release's SHA256SUMS that cannot be downloaded stops the upload,
+	// which would drop its lines.
+	t.Setenv("GH_FAIL", "1")
+	if err := publishGitHub(c, []string{exe, sums}); err == nil || !strings.Contains(err.Error(), "gh release download") {
+		t.Errorf("with the release's SHA256SUMS failing to download: %v", err)
 	}
 }
 
@@ -186,5 +197,78 @@ func TestInstallPS1(t *testing.T) {
 	}
 	if got := envName("2do"); got != "APP_2DO" {
 		t.Errorf("envName(2do) = %s", got)
+	}
+}
+
+// TestPublishS3Checksums checks that an upload to updates.s3 keeps the
+// lines of the SHA256SUMS published before, as of another platform, but
+// those of the files of other versions that it replaces.
+func TestPublishS3Checksums(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "id")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	old, other := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	published := old + "  App Setup 1.1.0 amd64.exe\n" + other + "  App Setup 1.2.0 arm64.exe\n" + old + "  app-1.1.0-linux-amd64.tar.gz\n" + old + "  install.ps1\n"
+	var (
+		mu       sync.Mutex
+		uploaded string
+		status   = http.StatusOK
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/app/SHA256SUMS":
+			w.WriteHeader(status)
+			if status == http.StatusOK {
+				io.WriteString(w, published)
+			}
+		case r.Method == http.MethodPut && r.URL.Path == "/downloads/app/SHA256SUMS":
+			b, _ := io.ReadAll(r.Body)
+			uploaded = string(b)
+		case r.Method != http.MethodPut:
+			t.Errorf("%s %s", r.Method, r.URL)
+		}
+	}))
+	defer srv.Close()
+	dist := t.TempDir()
+	exe := filepath.Join(dist, "App Setup 1.2.0 amd64.exe")
+	os.WriteFile(exe, []byte("hello"), 0o644)
+	ps1 := filepath.Join(dist, "windows-amd64", "install.ps1")
+	os.MkdirAll(filepath.Dir(ps1), 0o755)
+	os.WriteFile(ps1, []byte("hello"), 0o644)
+	c := &Config{root: t.TempDir(), Version: "1.2.0", Updates: &Updates{URL: srv.URL + "/app", S3: &S3{Bucket: "downloads", Prefix: "app", Endpoint: srv.URL}}}
+	const hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	for _, tc := range []struct {
+		status int
+		want   string
+	}{
+		// The other platform's installer and the Linux archive of 1.1.0,
+		// which this upload does not replace, stay.
+		{http.StatusOK, other + "  App Setup 1.2.0 arm64.exe\n" + hello + "  App Setup 1.2.0 amd64.exe\n" + old + "  app-1.1.0-linux-amd64.tar.gz\n" + hello + "  install.ps1\n"},
+		{http.StatusNotFound, hello + "  App Setup 1.2.0 amd64.exe\n" + hello + "  install.ps1\n"},
+		{http.StatusForbidden, hello + "  App Setup 1.2.0 amd64.exe\n" + hello + "  install.ps1\n"},
+	} {
+		sums, err := writeChecksums(dist, []string{exe, ps1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		status, uploaded = tc.status, ""
+		mu.Unlock()
+		if err := publish(c, []string{exe, ps1, sums}); err != nil {
+			t.Fatal(err)
+		}
+		if got := parseChecksums([]byte(uploaded)); !maps.Equal(got, parseChecksums([]byte(tc.want))) {
+			t.Errorf("with the published SHA256SUMS answering %d, uploaded\n%s\nwant\n%s", tc.status, uploaded, tc.want)
+		}
+	}
+	// Another error stops the upload, as it would drop the lines of the
+	// other builds.
+	mu.Lock()
+	status = http.StatusInternalServerError
+	mu.Unlock()
+	sums, _ := writeChecksums(dist, []string{exe, ps1})
+	if err := publish(c, []string{exe, ps1, sums}); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Errorf("with the published SHA256SUMS failing: %v", err)
 	}
 }

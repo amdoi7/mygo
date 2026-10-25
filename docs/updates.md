@@ -104,8 +104,8 @@ Publish the files where `updates` points to:
 - **S3**: `mygo build -upload` uploads them, with the installers, to the
   bucket of `updates.s3`; see [below](#publishing-to-s3).
 - **Your server**: upload the archives, deltas and manifests to the `url`
-  directory, with `install.sh`, `install.ps1` and `SHA256SUMS`, and keep the files of earlier
-  versions there. Upload the manifests last, so apps never see a manifest
+  directory, with `install.sh`, `install.ps1` and `SHA256SUMS` (with the
+  lines of every platform), and keep the files of earlier versions there. Upload the manifests last, so apps never see a manifest
   whose files are missing.
 
 Each platform, such as `darwin-arm64`, `darwin-universal` or
