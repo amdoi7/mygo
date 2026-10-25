@@ -217,6 +217,27 @@ menu, clicks reach `OnClick`, and `OnRightClick` gets right-clicks. Change
 the tray with `SetIcon`, `SetMenu`, `SetToolTip` and, on macOS,
 `SetTitle`, the text next to the icon; `Destroy` removes it.
 
+A title that shows a changing number, such as a network speed, should
+keep its width, or the item grows and shrinks and the icon and the items
+beside it move. On macOS the title's digits all have the same width, so a
+value padded to a fixed number of characters keeps it: pad with figure
+spaces (U+2007), which are as wide as a digit, since an ordinary space is
+narrower.
+
+```go
+// "  9.0 MB/s", " 12.5 MB/s", "128.0 MB/s": all as wide.
+func speed(mbps float64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%5.1f", mbps), " ", "\u2007") + " MB/s"
+}
+
+tray.SetTitle(speed(rate))
+```
+
+Only digits are tabular: letters keep their own widths, so a title that
+switches units (`9 KB/s`, then `1.2 MB/s`) changes width with the unit.
+Keeping that steady is the app's choice, by showing the value in one unit
+as above, for one.
+
 An app may show several icons, as a menu bar app showing its measures each
 in an item of its own. On macOS a new icon goes left of those already
 there, and the user moves icons by dragging them with ⌘ held: give each an

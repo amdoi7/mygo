@@ -328,6 +328,15 @@ func (b *Backend) NewTray(h platform.TrayHandler) (platform.Tray, error) {
 		send(t.button, "setTarget:", uintptr(trayTarget))
 		send(t.button, "setAction:", uintptr(sel("mygoTrayClicked:")))
 		send(t.button, "sendActionOn:", 1<<2|1<<4) // left and right mouse up
+		// Draw the title's digits at one width, so a changing number
+		// (a rate, a timer) doesn't resize the item and shift the icon and
+		// the items beside it. The menu bar's font at its size and weight,
+		// set on the button rather than in an attributed title, keeps
+		// AppKit's colors for light and dark bars and the highlight.
+		size := msgFloat(msgFloatID(class("NSFont"), sel("menuBarFontOfSize:"), 0), sel("pointSize"))
+		if font := msgFloat2ID(class("NSFont"), sel("monospacedDigitSystemFontOfSize:weight:"), size, 0); font != 0 { // NSFontWeightRegular
+			send(t.button, "setFont:", uintptr(font))
+		}
 		send(t.button, "addObserver:forKeyPath:options:context:", uintptr(trayTarget), uintptr(nsString("effectiveAppearance")), 0, 0)
 	})
 	b.trays[t.button] = t
