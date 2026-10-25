@@ -3683,6 +3683,19 @@ either.
   signal, and repaints in the next frame what it changed outside GTK's
   clip.
 
+  On Windows, `RequestFrame` invalidates the surface's window, whose
+  `WM_PAINT` comes as soon as the message queue is empty, and frames drawn
+  in memory show at once, through GDI or DirectComposition: nothing held
+  them to the display, and a drawing asking for every frame
+  (`Painter.AnimationFrame`) drew 5,000 a second on a 60 Hz display. After
+  each, a goroutine waits for DWM's next composition (`DwmFlush`, through
+  `platform.RefreshSurface`), for half a refresh at least, as it may
+  return at once, and two at most, and paced frames (`WM_PAINT`, but a
+  resize's and `FrameNow`'s) wait for it as they do for the swap chain's
+  room (`refreshWaiter`, `windowHost.waitDisplay`): the next draws once it
+  returns, through `FrameNow`, and the main thread handles input
+  meanwhile.
+
   With a GPU renderer, every frame draws on the GPU, small changes too, so
   a gesture never switches renderers mid-way: on the CPU, a frame
   redrawing glass or a blur that content scrolls under takes 30 to 70 ms

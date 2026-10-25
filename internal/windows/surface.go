@@ -273,6 +273,15 @@ func (s *surface) RefreshRate() float64 {
 	return float64(dm.DisplayFrequency)
 }
 
+// AwaitRefresh returns once DWM composes its next frame (DwmFlush): the
+// frames drawn in memory show at once, through GDI or DirectComposition,
+// and WM_PAINT comes as soon as one is asked for, so the content holds
+// them to the refreshes with it (platform.RefreshSurface). It is called
+// off the main thread.
+func (s *surface) AwaitRefresh() { procDwmFlush.Call() }
+
+var _ platform.RefreshSurface = (*surface)(nil)
+
 func (s *surface) PresentPixels(pix []byte, stride, width, height int) {
 	if len(pix) < stride*height || width == 0 || height == 0 {
 		return
@@ -485,7 +494,8 @@ func (s *surface) message(hwnd uintptr, m uint32, wp, lp uintptr) (uintptr, bool
 		dc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		s.paintDC = dc
 		// Frames that follow each other as the content asks for them may
-		// wait until the swap chain has room for one.
+		// wait until the swap chain has room for one, or, drawn in memory,
+		// until the display's next refresh (AwaitRefresh).
 		s.send(platform.SurfaceEvent{Kind: platform.SurfaceFrame, Paced: !s.now})
 		s.paintDC = 0
 		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))

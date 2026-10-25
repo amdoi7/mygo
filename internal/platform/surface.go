@@ -99,6 +99,18 @@ type PacedSurface interface {
 	FrameNow()
 }
 
+// RefreshSurface is a PacedSurface whose frames drawn in memory
+// (PresentPixels) show at once, and whose frames asked for (RequestFrame)
+// come at once, not at the display's refreshes, as Windows' do: after
+// each frame drawn in memory, the content waits for the next refresh off
+// the main thread, and Paced frames that come meanwhile wait for it.
+type RefreshSurface interface {
+	// AwaitRefresh returns once the display shows its next refresh, or
+	// at once when nothing is to show. It blocks, and is called from a
+	// goroutine of its own, never the main thread.
+	AwaitRefresh()
+}
+
 // FrameRateSurface is a Surface that can have its display refresh less
 // often than it can while frames come at a lower rate, as macOS's display
 // links do on ProMotion displays.
