@@ -2255,16 +2255,6 @@ either.
   fonts the elements' layouts hold), builds anew all the same. The timers
   the last frame built armed stay; the host arms them (`afterTimer`,
   `repaintTimer`), and `Painter.After`'s posts to the main thread.
-  A drawing asking for fewer frames (`Painter.AnimationFrameRate`) has
-  those frames come every so many of the display's refreshes, the fewest
-  that give it as many frames a second at least (`engine.pace`), unless
-  anything else in the window asks for each: `Painter.AnimationFrame`, a
-  pose moving, the view animating. The refreshes between draw nothing
-  (`paceSkips`) unless something else asked for a frame since, and the
-  surface is told of the rate (`platform.FrameRateSurface`): macOS sets
-  its display link's `preferredFrameRateRange`, which has a ProMotion
-  display refresh as often while nothing else on it asks for more. With
-  the display's rate unknown (browsers), frames come at each refresh.
   While nothing of the window shows (`platform.OccludableSurface`: a macOS
   window hidden, minimized or covered by other windows, whose display link
   still ticks, at the display's rate for half a minute, then at about 40

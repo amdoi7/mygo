@@ -101,22 +101,7 @@ func (p *Painter) Accelerated() bool {
 // frame paints the elements of this one again without building the view.
 // Call it in every frame while the drawing moves; an element out of view
 // is not painted, so it asks for none.
-func (p *Painter) AnimationFrame() { p.rt.repainting, p.rt.repaintFull = true, true }
-
-// AnimationFrameRate is AnimationFrame for a drawing that looks as smooth
-// at fps frames a second as at the display's rate, as a record turning, a
-// slow wave or a level meter: the window paints it again as often, rather
-// than at each of the display's refreshes, 120 a second on ProMotion and
-// many others, and has the display refresh as often where it can (macOS),
-// for less power. The rate rounds up to one the display shows evenly, a
-// whole number of its refreshes a frame: 60, 40 or 30 a second of a
-// 120 Hz display's, 60 or 30 of a 60 Hz one's. The window draws at the
-// fastest anything in it asks for: at the display's while another drawing
-// asks for AnimationFrame or the view animates.
-func (p *Painter) AnimationFrameRate(fps float32) {
-	p.rt.repainting = true
-	p.rt.repaintRate = max(p.rt.repaintRate, fps)
-}
+func (p *Painter) AnimationFrame() { p.rt.repainting = true }
 
 // After asks for the element to be painted again after d, for a drawing
 // that changes then, as a spinner's next step: unless something else

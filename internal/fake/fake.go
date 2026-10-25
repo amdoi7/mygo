@@ -1235,7 +1235,6 @@ type Surface struct {
 	access      *platform.AccessTree
 	accessN     int
 	rate        float64
-	frameRate   float64
 	dataDrag    *platform.DragRequest
 	dropFormats []transfer.Format
 	// webViews are those made (webview.go), order those shown in the
@@ -1294,21 +1293,6 @@ func (s *Surface) SetRefreshRate(hz float64) {
 	s.mu.Lock()
 	s.rate = hz
 	s.mu.Unlock()
-}
-
-// SetFrameRate records the frames a second the content asks for
-// (platform.FrameRateSurface), which FrameRate returns.
-func (s *Surface) SetFrameRate(fps float64) {
-	s.mu.Lock()
-	s.frameRate = fps
-	s.mu.Unlock()
-}
-
-// FrameRate returns what SetFrameRate last set, 0 for the display's rate.
-func (s *Surface) FrameRate() float64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.frameRate
 }
 
 func (s *Surface) RequestFrame() {
