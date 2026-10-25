@@ -99,6 +99,16 @@ type PacedSurface interface {
 	FrameNow()
 }
 
+// FrameRateSurface is a Surface that can have its display refresh less
+// often than it can while frames come at a lower rate, as macOS's display
+// links do on ProMotion displays.
+type FrameRateSurface interface {
+	// SetFrameRate tells how many frames a second come from now on while
+	// they follow each other, a whole fraction of RefreshRate, or 0 for
+	// one each refresh.
+	SetFrameRate(fps float64)
+}
+
 // MaximizeButtonSurface is a Surface whose window makes the maximize
 // button its content draws (in a window without its own, as
 // WindowOptions.HideWindowButtons) the system's for the pointer: Windows

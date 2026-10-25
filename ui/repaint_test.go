@@ -307,3 +307,78 @@ func TestOccludedFramesAfterInput(t *testing.T) {
 		t.Errorf("a change out of sight, after the input's frame: built %v, held %v", built, rt.rt.held)
 	}
 }
+
+func TestAnimationFrameRate(t *testing.T) {
+	var fps float32
+	full := false
+	draws := 0
+	tt := newRepaintTester(func(c *context) {
+		coreBox(c).Size(100, 20).Draw(func(p *Painter, r Rect) {
+			draws++
+			if fps > 0 {
+				p.AnimationFrameRate(fps)
+			}
+		})
+		coreBox(c).Size(10, 10).Draw(func(p *Painter, r Rect) {
+			if full {
+				p.AnimationFrame()
+			}
+		})
+	})
+	// paints returns how many of n refreshes of a display of hz paint the
+	// drawing again, each asking for the next.
+	paints := func(hz float32, n int) int {
+		tt.h.hz = hz
+		// Built anew, at the display's rate.
+		tt.rt.changed()
+		tt.frame(0)
+		start := draws
+		for i := range n {
+			if _, more := tt.frame(time.Duration(float32(time.Second) / hz)); !more {
+				t.Fatalf("at %v Hz asking for %v, refresh %d asked for no other", hz, fps, i)
+			}
+		}
+		return draws - start
+	}
+	for _, c := range []struct {
+		hz, fps float32
+		every   int
+		told    float32
+	}{
+		{120, 60, 2, 60},
+		{120, 50, 2, 60}, // what the display shows evenly, at least as many
+		{120, 30, 4, 30},
+		{120, 100, 1, 0},
+		{120, 120, 1, 0},
+		{60, 60, 1, 0},
+		{60, 30, 2, 30},
+		{59.94, 30, 2, 29.97},
+	} {
+		fps = c.fps
+		if got, want := paints(c.hz, 24), 24/c.every; got != want {
+			t.Errorf("at %v Hz asking for %v: painted %d of 24 refreshes, want %d", c.hz, c.fps, got, want)
+		}
+		if tt.h.frameRate != c.told {
+			t.Errorf("at %v Hz asking for %v: told the surface %v frames a second, want %v", c.hz, c.fps, tt.h.frameRate, c.told)
+		}
+	}
+	// Another drawing asking for the display's rate has each refresh paint.
+	fps, full = 30, true
+	if got := paints(120, 24); got != 24 || tt.h.frameRate != 0 {
+		t.Errorf("with AnimationFrame too: painted %d of 24 refreshes, told %v, want 24 and 0", got, tt.h.frameRate)
+	}
+	// An event between the frames due builds at once.
+	full = false
+	paints(120, 4)
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.PointerMove, X: 150, Y: 50})
+	if built, _ := tt.frame(time.Second / 120); !built {
+		t.Error("the frame after an event did not build the view")
+	}
+	// Once nothing moves, the surface is told of the display's rate again.
+	fps = 0
+	tt.rt.changed()
+	tt.frame(time.Second / 120)
+	if tt.h.frameRate != 0 {
+		t.Errorf("with nothing moving, told the surface %v frames a second, want 0", tt.h.frameRate)
+	}
+}
