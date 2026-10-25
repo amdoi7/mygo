@@ -517,8 +517,7 @@ func (w *window) cleanup() {
 	delete(b.byDelegate, w.delegate)
 	delete(b.byWebView, w.web)
 	delete(b.byNSWindow, w.win)
-	release(w.lastMouseDown)
-	w.lastMouseDown = 0
+	w.forgetDrag()
 	release(w.ucc)
 	for _, j := range printJobs {
 		if j.w == w && j.cb != nil {
@@ -1072,12 +1071,6 @@ func (w *window) SetMenu(*platform.Menu) {}
 // SetAutoHideMenu does nothing: the menu bar belongs to the application.
 func (w *window) SetAutoHideMenu(bool) {}
 
-func (w *window) StartDrag() {
-	if w.lastMouseDown != 0 {
-		send(w.win, "performWindowDragWithEvent:", uintptr(w.lastMouseDown))
-	}
-}
-
 // hiddenTitleBar reports a TitleBarStyle that hides the title bar but keeps
 // the traffic lights.
 func (w *window) hiddenTitleBar() bool {
@@ -1592,9 +1585,7 @@ func registerWindowClasses() {
 					w.pressed(ev, 0)
 				}
 				// A web view's page drags the window it is in (StartDrag).
-				w = w.top()
-				release(w.lastMouseDown)
-				w.lastMouseDown = retain(ev)
+				w.top().pressedLeft(ev)
 			}
 			sendSuper(self, "MyGoWebView", cmd, uintptr(ev))
 		}),

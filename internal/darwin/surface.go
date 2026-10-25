@@ -725,8 +725,10 @@ func registerSurfaceClass() {
 			}
 			if kind == platform.PointerDown {
 				if btn == 0 {
-					release(s.w.lastMouseDown)
-					s.w.lastMouseDown = retain(ev)
+					// Native UI's drag regions drag the window
+					// (StartDrag), and its data drags start with the
+					// press.
+					s.w.pressedLeft(ev)
 				}
 				send(s.w.win, "makeFirstResponder:", uintptr(self))
 			}

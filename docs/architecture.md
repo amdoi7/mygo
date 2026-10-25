@@ -251,7 +251,11 @@ purego gives three primitives, used everywhere:
   through `objc_msgSend_stret`.
 - Classes are defined at run time with `objc.RegisterClass`: `MyGoWindow`
   (borderless-friendly `NSWindow`), `MyGoWebView` (records the last
-  `mouseDown:` for drag regions), `MyGoWindowDelegate` (window, navigation,
+  `mouseDown:` for drag regions; `window_drag.go` follows the press with a
+  local event monitor: `StartDrag` asks the window server
+  (`performWindowDragWithEvent:`) while the pointer has not moved, and
+  moves the window itself when it has, or when the window server did not
+  begin), `MyGoWindowDelegate` (window, navigation,
   UI and script-message delegate in one object per window), the app delegate,
   scheme handler, menu and tray targets. Only protocols that exist at run
   time are adopted (`WKScriptMessageHandler` is not registered, and WebKit
@@ -789,8 +793,8 @@ document start into the main frame. It installs:
   `windowId`, `version`. Frozen, so pages cannot tamper with it.
 - `window.__mygo.receive(messages)`, used by Go to deliver messages.
 - dom-ready notification and `--app-region: drag` handling for frameless
-  windows (the mousedown is reported, the backend starts a native window drag
-  from the recorded mouse event).
+  windows (the mousedown is reported, the backend starts a window drag
+  from the recorded mouse event while the button is down).
 - The `--mygo-titlebar-*` CSS variables of a window with a hidden title
   bar, in a constructed style sheet (a `<style>` element where engines
   lack them), from the `mygo:title-bar` event: the room its controls take
