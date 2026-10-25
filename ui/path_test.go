@@ -50,9 +50,9 @@ func TestPathsLargerThanAMaskDraw(t *testing.T) {
 // hole (non-zero winding), a curved stroke crossing itself, a closed
 // stroke, a dashed stroke with square caps and miter joins, whose caps and
 // points reach past half its width, and fills and strokes in linear and
-// conic gradients across their whole bounds. The pixels are the same, within a level of 255 where the
-// rasterizer starts an edge at a tile's top or left rather than above or
-// left of it.
+// conic gradients across their whole bounds. The pixels are the same,
+// within a level of 255 where the rasterizer starts an edge at a tile's
+// top or left rather than above or left of it.
 func TestTiledPathsMatchOneMask(t *testing.T) {
 	blue, red := RGB(20, 60, 230), RGB(230, 40, 20)
 	view := func(c *context) {
@@ -328,6 +328,29 @@ func TestStrokeStylesHaveMasksOfTheirOwn(t *testing.T) {
 	}
 	if len(masks) != 5 {
 		t.Errorf("five strokes draw from %d masks", len(masks))
+	}
+}
+
+// TestMiterLimitsOfOtherJoinsShareAMask strokes a path with round joins
+// and with bevel joins, each with miter limits of 4 and 10: the limit
+// shapes miter joins alone, so each join draws from one mask.
+func TestMiterLimitsOfOtherJoinsShareAMask(t *testing.T) {
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Fill().Draw(func(p *Painter, r Rect) {
+			for i, join := range []LineJoin{RoundJoin, RoundJoin, BevelJoin, BevelJoin} {
+				var path Path
+				y := float32(10 + 30*i)
+				path.MoveTo(10, y).LineTo(40, y+10).LineTo(10, y+20).Join(join).MiterLimit(float32(4 + 6*(i%2)))
+				p.StrokePath(&path, 4, RGB(20, 60, 230))
+			}
+		})
+	}, 60, 130)
+	masks := map[[2]uint16]bool{}
+	for _, g := range tt.rt.scene.Glyphs {
+		masks[[2]uint16{g.U, g.V}] = true
+	}
+	if len(masks) != 2 {
+		t.Errorf("two joins draw from %d masks", len(masks))
 	}
 }
 

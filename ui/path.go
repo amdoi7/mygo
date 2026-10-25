@@ -504,7 +504,12 @@ func (p *Painter) drawPathPaint(f *flatPath, width float32, c Color, g *LinearGr
 	if hw > 0 {
 		hs.WriteByte(byte(f.cap))
 		hs.WriteByte(byte(f.join))
-		binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(f.miter))
+		// The miter limit shapes miter joins alone.
+		miter := float32(0)
+		if f.join == MiterJoin {
+			miter = f.miter
+		}
+		binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(miter))
 		binary.LittleEndian.PutUint32(buf[4:], uint32(len(f.dash)))
 		hs.Write(buf[:])
 		for _, l := range f.dash {
