@@ -178,13 +178,14 @@ function Get-LatestTag {
 	throw "no release of $appName is published"
 }
 
-# Get-AppProcess returns the processes running from the folder, as far as
-# Windows lets this see their paths.
+# Get-AppProcess returns the processes running from the folder. It finds
+# them with CIM, which reads every path at once: the Path of each process
+# from Get-Process takes seconds in all on Windows PowerShell 5.1.
 function Get-AppProcess([string]$folder) {
 	$dir = $folder.TrimEnd('\') + '\'
-	Get-Process -ErrorAction SilentlyContinue | Where-Object {
-		try { $_.Path -and $_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
-	}
+	Get-CimInstance Win32_Process -Property ProcessId, ExecutablePath -ErrorAction SilentlyContinue | Where-Object {
+		$_.ExecutablePath -and $_.ProcessId -ne $PID -and $_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)
+	} | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }
 }
 
 # Wait-Exit waits up to the seconds for the processes to exit.

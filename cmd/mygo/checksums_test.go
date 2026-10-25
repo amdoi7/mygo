@@ -132,7 +132,7 @@ func TestInstallPS1(t *testing.T) {
 		// It stops the app's processes, those running from its folder, that
 		// do not quit when asked.
 		for _, line := range []string{
-			"$_.Path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)",
+			"$_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)",
 			"$running | Stop-Process -Force",
 			"Wait-Exit $running 10\n",
 		} {
