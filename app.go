@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -46,6 +47,8 @@ type Application struct {
 
 	// quitting is only touched on the main thread.
 	quitting    bool
+	stopping    bool // the quit sequence ran: the event loop is to stop (main thread)
+	ended       bool // the event loop stopped: finish runs (main thread)
 	relaunch    bool // Relaunch: start again once quit (main thread)
 	initialized bool // Run initialized the backend (main thread)
 
@@ -157,10 +160,47 @@ func (a *Application) IsReady() bool {
 // it.
 func (a *Application) Quit() {
 	postMain(func() {
-		if a.prepareQuit() {
+		if a.stopping {
 			backend().Quit()
+			return
+		}
+		if a.prepareQuit() {
+			a.stopLoop()
 		}
 	})
+}
+
+// stopGrace is how long the event loop has to stop once the quit sequence
+// has run, before the app finishes and exits without it; 0 waits on.
+var stopGrace = 3 * time.Second
+
+// stopLoop stops the event loop once the quit sequence has run.
+func (a *Application) stopLoop() {
+	a.loopStopping()
+	backend().Quit()
+}
+
+// loopStopping records that the quit sequence has run. Its windows closed,
+// the app must not stay behind should the event loop go on: AppKit's has
+// been seen to after a relaunch asked for from a daemon's reconnection,
+// when every later quit was taken for one already under way. A later quit
+// asks the loop to stop again (Quit, QuitRequested), and after stopGrace
+// the app finishes and exits anyway.
+func (a *Application) loopStopping() {
+	a.stopping = true
+	if stopGrace > 0 {
+		time.AfterFunc(stopGrace, func() { postMain(a.forceStop) })
+	}
+}
+
+// forceStop finishes the app and exits, should its event loop not have
+// stopped in time.
+func (a *Application) forceStop() {
+	if a.ended {
+		return
+	}
+	a.finish()
+	os.Exit(0)
 }
 
 // Exit terminates the process immediately with the given exit code,
@@ -210,6 +250,7 @@ func (a *Application) prepareQuit() bool {
 // finish runs once after the event loop has stopped.
 func (a *Application) finish() {
 	a.finished.Do(func() {
+		a.ended = true
 		stopNativeCalls()
 		stopFileWatches()
 		clipboardStopped = true
@@ -582,10 +623,21 @@ func (d *Dock) Show() { App.SetActivationPolicy(ActivationPolicyRegular) }
 // appHandler receives application events from the backend.
 type appHandler struct{}
 
-func (appHandler) Ready()              { App.handleReady() }
-func (appHandler) Dispatch()           { loop.drain() }
-func (appHandler) QuitRequested() bool { return App.prepareQuit() }
-func (appHandler) Terminating()        { App.finish() }
+func (appHandler) Ready()    { App.handleReady() }
+func (appHandler) Dispatch() { loop.drain() }
+func (appHandler) QuitRequested() bool {
+	if App.stopping {
+		// The loop goes on although asked to stop: ask again.
+		return true
+	}
+	if !App.prepareQuit() {
+		return false
+	}
+	// The backend stops its loop itself.
+	App.loopStopping()
+	return true
+}
+func (appHandler) Terminating() { App.finish() }
 func (appHandler) Activated(visible bool) {
 	fire1(&App.onActivate, visible)
 }

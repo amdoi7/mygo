@@ -58,6 +58,11 @@ func TestMain(m *testing.M) {
 	}
 	fb = fake.New()
 	backendOnce.Do(func() { theBackend = fb })
+	if os.Getenv("MYGO_TEST_STUCK_QUIT") == "1" {
+		stuckQuit()
+	}
+	// A quit that a test lets through must not end the tests.
+	stopGrace = 0
 	if os.Getenv("MYGO_TEST_BEFORE_RUN") == "1" {
 		beforeRun()
 	}
@@ -2016,6 +2021,42 @@ var needsAppCalls = []struct {
 	{"Dialog.Error", func() { Dialog.Error("title", "content") }},
 	{"Menu.Popup", func() { NewMenu(nil).Popup(nil) }},
 	{"Menu.PopupAt", func() { NewMenu(nil).PopupAt(nil, 0, 0) }},
+}
+
+// TestQuitWhileLoopRuns: once the quit sequence has run, a loop that goes
+// on running does not keep the app: a later quit asks it to stop again,
+// and the app finishes and exits after stopGrace.
+func TestQuitWhileLoopRuns(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^$")
+	cmd.Env = append(os.Environ(), "MYGO_TEST_STUCK_QUIT=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got := string(out); !strings.Contains(got, "asked again: 2\n") || !strings.Contains(got, "quit\n") {
+		t.Errorf("output:\n%s", got)
+	}
+}
+
+// stuckQuit is a helper process for TestQuitWhileLoopRuns: its event
+// loop does not stop when asked.
+func stuckQuit() {
+	fb.IgnoresQuit = true
+	stopGrace = 100 * time.Millisecond
+	App.OnWindowAllClosed(func() {})
+	App.OnQuit(func() { fmt.Println("quit") })
+	App.WhenReady(func() {
+		App.Quit()
+		App.Quit()
+		postMain(func() { fmt.Println("asked again:", fb.Quits) })
+	})
+	App.Run()
+	fmt.Println("the loop stopped")
+	os.Exit(1)
 }
 
 // beforeRun is a helper process for TestBeforeRun: it does what main may

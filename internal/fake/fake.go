@@ -31,6 +31,10 @@ type Backend struct {
 	signal chan struct{}
 	wake   chan struct{}
 	quit   chan struct{}
+	// IgnoresQuit makes Quit leave the event loop running, as AppKit's
+	// has been seen to; Quits counts the calls.
+	IgnoresQuit bool
+	Quits       int
 
 	mu               sync.Mutex
 	windows          []*Window
@@ -184,6 +188,10 @@ func (b *Backend) Run() error {
 }
 
 func (b *Backend) Quit() {
+	b.Quits++
+	if b.IgnoresQuit {
+		return
+	}
 	select {
 	case <-b.quit:
 	default:
