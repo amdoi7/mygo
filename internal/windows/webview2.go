@@ -144,6 +144,7 @@ const (
 // (85), remove_IsDocumentPlayingAudioChanged (86) and
 // get_IsDocumentPlayingAudio (87).
 const (
+	wv8AddIsMutedChanged                = 81
 	wv8GetIsMuted                       = 83
 	wv8PutIsMuted                       = 84
 	wv8AddIsDocumentPlayingAudioChanged = 85

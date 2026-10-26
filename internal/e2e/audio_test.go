@@ -43,6 +43,26 @@ func TestPageAudioMuted(t *testing.T) {
 	wait.Until(t, "IsAudioMuted false after SetAudioMuted(false)", func() bool { return !p.IsAudioMuted() })
 	p.SetAudioMuted(true)
 	wait.Until(t, "IsAudioMuted true after SetAudioMuted(true) again", p.IsAudioMuted)
+
+	// A burst of changes ends in the last one: WebView2 may lose or
+	// reorder IsMuted puts that follow each other at once.
+	for range 5 {
+		p.SetAudioMuted(false)
+		p.SetAudioMuted(true)
+	}
+	wait.Until(t, "IsAudioMuted true after a burst ending muted", p.IsAudioMuted)
+	mustEval(t, w, `1`) // a round trip, for a late put to land
+	time.Sleep(200 * time.Millisecond)
+	if !p.IsAudioMuted() {
+		t.Error("IsAudioMuted = false a while after a burst ending muted")
+	}
+	p.SetAudioMuted(false)
+	wait.Until(t, "IsAudioMuted false after unmuting a burst", func() bool { return !p.IsAudioMuted() })
+	mustEval(t, w, `1`)
+	time.Sleep(200 * time.Millisecond)
+	if p.IsAudioMuted() {
+		t.Error("IsAudioMuted = true a while after unmuting a burst")
+	}
 }
 
 // audiblePage loops a quiet 440 Hz tone in an <audio> element, from a WAV

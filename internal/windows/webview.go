@@ -251,10 +251,13 @@ func (w *window) setUp(controller uintptr) {
 		withHandler(func(_, _ uintptr) { w.h.AudibleChanged(w.IsAudible()) }, func(h uintptr) uintptr {
 			return comCall(wv8, wv8AddIsDocumentPlayingAudioChanged, h, uintptr(unsafe.Pointer(&tok)))
 		})
-		if w.muted { // muted before the web view was made
-			comCall(wv8, wv8PutIsMuted, 1)
-		}
+		withHandler(func(_, _ uintptr) { w.mutedChanged() }, func(h uintptr) uintptr {
+			return comCall(wv8, wv8AddIsMutedChanged, h, uintptr(unsafe.Pointer(&tok)))
+		})
 		release(wv8)
+		if w.muted { // muted before the web view was made
+			w.SetAudioMuted(true)
+		}
 	}
 	add(wvAddWindowCloseRequested, func(_, _ uintptr) { w.h.ClosedByPage() })
 	add(wvAddProcessFailed, func(_, args uintptr) {
@@ -964,11 +967,52 @@ func (w *window) IsAudible() bool { return w.getBool8(wv8GetIsDocumentPlayingAud
 // SetAudioMuted puts ICoreWebView2_8's IsMuted, or keeps it for setUp
 // until the web view is made. A runtime older than ICoreWebView2_8 can't
 // mute.
+//
+// WebView2 may lose a put that follows another before IsMutedChanged told
+// the first, or apply them out of order, and the page then plays muted or
+// stays silent unmuted. So one put is in flight at a time: w.muted is the
+// state wanted, and mutedChanged puts it again once the runtime told its
+// change, if it differs. A put whose IsMutedChanged never comes (none
+// does for no change) holds the next one back for mutePutTimeout only.
 func (w *window) SetAudioMuted(v bool) {
 	w.muted = v
+	if w.mutePut.IsZero() || time.Since(w.mutePut) >= mutePutTimeout {
+		w.putMuted()
+	}
+}
+
+// mutePutTimeout is how long a put of IsMuted holds the next back while
+// its IsMutedChanged doesn't come.
+const mutePutTimeout = time.Second
+
+// putMuted puts w.muted, and holds the next put back until IsMutedChanged
+// tells this one landed when it changes what the web view reports. A put
+// of what it reports already changes nothing, and none comes for it.
+func (w *window) putMuted() {
+	w.mutePut = time.Time{}
+	wv8 := w.webView8()
+	if wv8 == 0 {
+		return
+	}
+	defer release(wv8)
+	var cur int32
+	if failed(comCall(wv8, wv8GetIsMuted, uintptr(unsafe.Pointer(&cur)))) || (cur != 0) != w.muted {
+		w.mutePut = time.Now()
+	}
+	comCall(wv8, wv8PutIsMuted, boolArg(w.muted))
+}
+
+// mutedChanged runs on IsMutedChanged: the put in flight landed, and the
+// state wanted since is put if the web view reports another.
+func (w *window) mutedChanged() {
+	w.mutePut = time.Time{}
 	if wv8 := w.webView8(); wv8 != 0 {
-		comCall(wv8, wv8PutIsMuted, boolArg(v))
+		var cur int32
+		bad := failed(comCall(wv8, wv8GetIsMuted, uintptr(unsafe.Pointer(&cur))))
 		release(wv8)
+		if bad || (cur != 0) != w.muted {
+			w.putMuted()
+		}
 	}
 }
 
