@@ -2168,7 +2168,15 @@ either.
   surface (NSDraggingDestination, a GTK drag destination, an OLE
   `IDropTarget`) are `FileDragOver` events, whose answer the drag source
   shows, and a drop a `FileDrop`; files the content does not take go to
-  `OnFileDrop`.
+  `OnFileDrop`. On Linux the area takes the touchscreen's touches
+  (`GDK_TOUCH_MASK`, in its `event` signal, before GTK's `touch-event`
+  handler makes the first finger the mouse), which `touch.go` turns into
+  what the mouse and a touchpad do: a tap clicks where it landed, held
+  still half a second it right-clicks, as Windows's press and hold; a
+  finger moving past 8 DIPs scrolls (`Precise`) the content under it
+  along with it, and two fingers zoom (`PointerZoom`) between them and
+  scroll as their midpoint moves. Button and motion events from a
+  touchscreen are dropped once the area has had touches.
 - **Assistive technology.** Once it asks for a surface's content, the
   backend sends `AccessibilityOn`, and the engine describes every frame
   (`ui/access.go`) as a `platform.AccessTree`: nodes in pre-order with
