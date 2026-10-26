@@ -445,7 +445,11 @@ type node struct {
 	nameFrom         *node
 	// nameJoin makes the element's name nameFrom's followed by its Label,
 	// as a range slider's knobs.
-	nameJoin        bool
+	nameJoin bool
+	// focusTo is the element taking the focus that Focus and AutoFocus
+	// give this one, and whose focus Focused reports: the input of the box
+	// around it (field).
+	focusTo         *node
 	setPos, setSize int
 	choosesItems    bool
 	search          bool
