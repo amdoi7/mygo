@@ -377,6 +377,11 @@ type WindowOpenRequest struct {
 	// Width and Height requested through window.open() features; 0 when
 	// not specified.
 	Width, Height int
+	// UserInitiated is true when a user's gesture opened the window: a
+	// click on the link, or a click or key press whose handler called
+	// window.open(). It is false for a window a script opened on its own,
+	// as a pop-up from a timer or at load, which a handler may refuse.
+	UserInitiated bool
 }
 
 var windows struct {
@@ -1449,6 +1454,8 @@ func (e *EvalError) Error() string { return "mygo: javascript error: " + e.Messa
 // target="_blank" links. The handler returns the options of the window to
 // open, or nil to deny the request. Without a handler, http(s) URLs open in
 // the default browser and everything else is denied.
+// WindowOpenRequest.UserInitiated tells the windows a user opened from
+// the pop-ups a script opened on its own.
 //
 // On macOS and Windows the new page keeps its relation to the opener
 // (window.opener). On Linux it opens as an independent page, because
@@ -1835,7 +1842,7 @@ func (h *windowHandler) NewWindow(req platform.NewWindowRequest) platform.Window
 	h.w.mu.Lock()
 	handler := h.w.openHandler
 	h.w.mu.Unlock()
-	r := WindowOpenRequest{URL: req.URL, FrameName: req.FrameName, Width: req.Width, Height: req.Height}
+	r := WindowOpenRequest{URL: req.URL, FrameName: req.FrameName, Width: req.Width, Height: req.Height, UserInitiated: req.UserInitiated}
 	if handler == nil {
 		if u, err := url.Parse(req.URL); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 			go Shell.OpenExternal(req.URL)

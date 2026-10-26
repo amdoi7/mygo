@@ -710,6 +710,10 @@ type NewWindowRequest struct {
 	Disposition string
 	// Width/Height/X/Y come from window.open() features; zero when absent.
 	X, Y, Width, Height int
+	// UserInitiated is true when a user's gesture, as a click or a key
+	// press, opened the window: a click on the link, or its handler
+	// calling window.open().
+	UserInitiated bool
 	// Native must be copied into WindowOptions.Native of the window that is
 	// returned.
 	Native uintptr

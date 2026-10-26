@@ -308,6 +308,11 @@ func (w *window) createWebView() {
 	webkitSettingsSetEnableDeveloperExtras(settings, o.DevTools)
 	webkitSettingsSetAllowFileAccessFromFileURLs(settings, true)
 	webkitSettingsSetJavascriptCanAccessClipboard(settings, true)
+	// WebKitGTK refuses a window.open() without a user's gesture before
+	// asking the app, by default: every one asks it instead
+	// (Page.SetWindowOpenHandler), as on macOS and Windows, saying whether
+	// a gesture made it.
+	webkitSettingsSetJavascriptCanOpenWindowsAuto(settings, true)
 	if o.UserAgent != "" {
 		webkitSettingsSetUserAgent(settings, cs(userAgentWithSuffix(o.UserAgent, o.UserAgentSuffix)))
 	} else if o.UserAgentSuffix != "" {
@@ -1725,7 +1730,8 @@ func initWindowCallbacks() {
 		// manager, which would route the new window's IPC to the opener.
 		// Open an independent window instead; its page has no opener.
 		url := goStr(webkitURIRequestGetURI(webkitNavigationActionGetRequest(action)))
-		if child, ok := w.h.NewWindow(platform.NewWindowRequest{URL: url}).(*window); ok && child != nil {
+		req := platform.NewWindowRequest{URL: url, UserInitiated: webkitNavigationActionIsUserGesture(action)}
+		if child, ok := w.h.NewWindow(req).(*window); ok && child != nil {
 			child.LoadURL(url)
 		}
 		return 0

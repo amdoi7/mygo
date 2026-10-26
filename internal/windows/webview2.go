@@ -95,6 +95,7 @@ const (
 	newWinGetURI                  = 3
 	newWinPutNewWindow            = 4
 	newWinPutHandled              = 6
+	newWinGetIsUserInitiated      = 8 // after get_NewWindow (5), put_Handled (6), get_Handled (7)
 	newWinGetDeferral             = 9
 	newWinGetWindowFeatures       = 10
 	featGetHasPosition            = 3

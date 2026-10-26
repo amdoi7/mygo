@@ -1836,7 +1836,7 @@ func registerWindowClasses() {
 					nav := platform.Navigation{
 						URL:           goString(send(send(send(action, "request"), "URL"), "absoluteString")),
 						IsMainFrame:   frame != 0 && sendBool(frame, "isMainFrame"),
-						UserInitiated: navType == 0 || navType == 1,
+						UserInitiated: userInitiated(action, navType),
 						Unasked:       navType == 2 || navType == 3,
 						Reload:        navType == 3,
 					}
@@ -1963,7 +1963,10 @@ func registerWindowClasses() {
 					Y:      num("y"),
 					Width:  num("width"),
 					Height: num("height"),
-					Native: uintptr(cfg),
+					// The action of the link, or of window.open(), whose
+					// WKNavigationType is "other".
+					UserInitiated: userInitiated(action, sendInt(action, "navigationType")),
+					Native:        uintptr(cfg),
 				}
 				child, ok := w.h.NewWindow(req).(*window)
 				if !ok || child == nil {
@@ -1993,6 +1996,18 @@ func registerWindowClasses() {
 				jsFileInput(w, params, handler)
 			}),
 		}...))
+}
+
+// userInitiated reports whether a user's gesture started a navigation
+// action. WebKit's private -[WKNavigationAction _isUserInitiated] knows,
+// a click whose handler navigates or calls window.open() included;
+// without it, the action's WKNavigationType says, a link or a form,
+// which misses those.
+func userInitiated(action id, navType int) bool {
+	if respondsTo(action, "_isUserInitiated") {
+		return sendBool(action, "_isUserInitiated")
+	}
+	return navType == 0 || navType == 1 // WKNavigationTypeLinkActivated, FormSubmitted
 }
 
 func (w *window) loadFailed(err id) {

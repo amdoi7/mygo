@@ -528,7 +528,9 @@ func (w *window) newWindowRequested(_, args uintptr) {
 	var p uintptr
 	comCall(args, newWinGetURI, uintptr(unsafe.Pointer(&p)))
 	raw := takeWstr(p)
-	req := platform.NewWindowRequest{URL: w.appURL(raw)}
+	var user int32
+	comCall(args, newWinGetIsUserInitiated, uintptr(unsafe.Pointer(&user)))
+	req := platform.NewWindowRequest{URL: w.appURL(raw), UserInitiated: user != 0}
 	var features uintptr
 	if comCall(args, newWinGetWindowFeatures, uintptr(unsafe.Pointer(&features))) == sOK && features != 0 {
 		var hasSize, hasPos int32
