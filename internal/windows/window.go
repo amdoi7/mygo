@@ -4,6 +4,7 @@ package windows
 
 import (
 	"errors"
+	"time"
 	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
@@ -115,6 +116,8 @@ type window struct {
 	programmatic bool
 	loading      bool
 	zoom         float64
+	muted        bool      // SetAudioMuted, which setUp applies to a web view made later
+	mutePut      time.Time // when the IsMuted put in flight was made, zero for none
 	devTools     bool
 	htmlFor      map[string]string // LoadHTML documents by the URL they load at
 	htmlNext     bool              // LoadHTML started the next navigation

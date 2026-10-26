@@ -535,3 +535,73 @@ func TestRepaintPartsWhole(t *testing.T) {
 		t.Error("a scene growing in parts was never painted whole")
 	}
 }
+
+// TestRepaintPartsAfterAtlasMoved checks that a window paints itself whole
+// when another window made room in the glyph atlases they share: its text
+// painted in parts kept the places its glyphs had before, which then held
+// the other window's glyphs and masks, as black boxes where text was.
+func TestRepaintPartsAfterAtlasMoved(t *testing.T) {
+	a := newRepaintTester(func(c *context) {
+		coreBox(c).Size(200, 50).Draw(func(p *Painter, r Rect) {
+			p.Text(r.X+4, r.Y+30, "Hello, world", 20, RGB(0, 0, 0))
+		})
+		coreBox(c).Size(20, 20).Draw(func(p *Painter, r Rect) { p.AnimationFrame() })
+	})
+	a.frame(8 * time.Millisecond)
+	want := bytes.Clone(a.Image().Pix)
+	// Another window drawing more glyphs than the atlas has room for.
+	b := newRepaintTester(func(c *context) {
+		coreBox(c).Size(200, 100).Draw(func(p *Painter, r Rect) {
+			for i := range 400 {
+				p.Text(r.X, r.Y+40, string(rune('一'+i)), 48, RGB(0, 0, 0))
+			}
+		})
+	})
+	b.frame(8 * time.Millisecond)
+	a.frame(8 * time.Millisecond)
+	if !bytes.Equal(a.Image().Pix, want) {
+		t.Error("the window's text changed after another window made room in the atlas")
+	}
+}
+
+// TestRepaintPartsAfterTransientMasks checks that a window paints itself
+// whole after a frame that drew masks for the first time: such masks last
+// that frame alone, in room of the atlas the next frame of any window
+// draws over, and its icons painted in parts showed the other window's
+// shapes.
+func TestRepaintPartsAfterTransientMasks(t *testing.T) {
+	show := false
+	a := newRepaintTester(func(c *context) {
+		coreBox(c).Size(200, 50).Background(RGB(255, 255, 255)).Draw(func(p *Painter, r Rect) {
+			if !show {
+				return
+			}
+			var tri Path
+			tri.MoveTo(r.X+13, r.Y+7).LineTo(r.X+41, r.Y+29).LineTo(r.X+9, r.Y+43).Close()
+			p.FillPath(&tri, RGB(0, 0, 0))
+		})
+		coreBox(c).Size(20, 20).Draw(func(p *Painter, r Rect) { p.AnimationFrame() })
+	})
+	// The shape shows in one frame painted whole, as after a click.
+	show = true
+	a.rt.runFrame()
+	want := bytes.Clone(a.Image().Pix)
+	// Another window drawing a shape of its own for the first time.
+	b := newRepaintTester(func(c *context) {
+		coreBox(c).Size(200, 100).Draw(func(p *Painter, r Rect) {
+			var square Path
+			square.MoveTo(r.X+3, r.Y+3).LineTo(r.X+67, r.Y+3).LineTo(r.X+67, r.Y+71).LineTo(r.X+3, r.Y+71).Close()
+			p.FillPath(&square, RGB(0, 0, 0))
+		})
+	})
+	b.frame(8 * time.Millisecond)
+	for range 3 {
+		a.frame(8 * time.Millisecond)
+		if !bytes.Equal(a.Image().Pix, want) {
+			t.Fatal("the window's shape changed after another window drew its own")
+		}
+	}
+	if a.rt.partPaints == 0 {
+		t.Error("the window was never painted in parts once its masks lasted")
+	}
+}

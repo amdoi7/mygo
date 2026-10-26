@@ -73,7 +73,8 @@ MYGO_UPDATER_PRIVATE_KEY="$(cat path/to/mygo-update.key)" go tool mygo build   #
 
 Next to the installers of each platform it writes:
 
-- `my-app-1.2.0-darwin-arm64.tar.gz`, the app as installed,
+- `my-app-1.2.0-darwin-arm64.tar.gz`, the app as installed, named after
+  the app's [`slug`](configuration.md#the-app),
 - [delta updates](#delta-updates) from the versions before, such as
   `my-app-1.1.0-to-1.2.0-darwin-arm64.delta`, and
 - `update-darwin-arm64.json`, the manifest: the version, its release

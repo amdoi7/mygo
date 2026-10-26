@@ -62,7 +62,7 @@ func uploads(artifacts []string) (files, manifests []string, err error) {
 			if !slices.ContainsFunc(files, func(f string) bool { return filepath.Base(f) == name }) {
 				files = append(files, a)
 			}
-		case strings.HasSuffix(name, ".dmg"), strings.HasSuffix(name, ".exe") && strings.Contains(name, " Setup "),
+		case strings.HasSuffix(name, ".dmg"), strings.HasSuffix(name, ".exe") && strings.Contains(name, installerMark),
 			strings.HasSuffix(name, ".deb"), strings.HasSuffix(name, ".tar.gz"), strings.HasSuffix(name, ".delta"):
 			files = append(files, a)
 		}

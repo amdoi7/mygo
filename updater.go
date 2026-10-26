@@ -428,7 +428,10 @@ func httpGet(ctx context.Context, rawURL string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "MyGo/"+Version+" "+App.Name()+"/"+App.Version())
+	// Not the app's name: GitHub's release assets come from a store that
+	// answers 400 to a User-Agent with bytes outside ASCII, as 云音乐, for
+	// every file its CDN has not cached yet.
+	req.Header.Set("User-Agent", "mygo-updater")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

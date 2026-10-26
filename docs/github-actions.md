@@ -342,7 +342,7 @@ to check that the apps build:
           name: ${{ matrix.name }}
           path: |
             build/*/*.dmg
-            build/*/*Setup*.exe
+            build/*/*-setup-*.exe
             build/*/*.deb
             build/*/*.tar.gz
 ```

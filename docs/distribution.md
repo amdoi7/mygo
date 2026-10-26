@@ -44,8 +44,8 @@ when cross-compiling, set `CC` to a suitable cross compiler.
 
 | Platform | In `build/<os>-<arch>/` |
 |---|---|
-| macOS | `My App.app`, signed, and `My App 0.1.0 arm64.dmg` (`My App 0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
-| Windows | `My App.exe`, the files of the app, and the installer `My App Setup 0.1.0 amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
+| macOS | `My App.app`, signed, and `my-app-0.1.0-arm64.dmg` (`my-app-0.1.0.dmg` for `darwin/universal`), with [updates](updates.md) also `install.sh` |
+| Windows | `My App.exe`, the files of the app, and the installer `my-app-setup-0.1.0-amd64.exe`, with [updates](updates.md) also [`install.ps1`](#install-scripts-for-macos-and-windows) |
 | Linux | `my-app`, `my-app.desktop`, `my-app.png`, `my-app.xml` for the file types the app defines, the files of the app, their archive `my-app-0.1.0-linux-amd64.tar.gz` with [`install.sh`](#the-install-script), and the Debian package `my-app_0.1.0_amd64.deb` |
 
 Other flags: `-debug` keeps development features such as the inspector,
@@ -372,8 +372,9 @@ window. A `.syso` file of your own in the main package replaces them.
 
 ### The installer
 
-`mygo build` also makes `My App Setup 1.2.0 amd64.exe`, named for its
-architecture as the disk images are, so that the installers of two
+`mygo build` also makes `my-app-setup-1.2.0-amd64.exe`, named after the
+app's [`slug`](configuration.md#the-app) and its architecture as the disk
+images are, so that the installers of two
 targets, uploaded to one release, keep both. It installs the app for
 the current user in `%LOCALAPPDATA%\Programs\My App`, which needs no
 administrator rights and lets the app [update itself](updates.md), adds a
@@ -381,6 +382,24 @@ Start menu shortcut and an uninstaller listed in Settings, and registers
 the app's URL schemes and file associations. Its last page offers to run
 the app and to create a desktop shortcut, which is checked; silent
 installs (`/S`) create none.
+
+The shortcuts, the entry in Settings > Apps and the installer's title
+show the app's `name`, or
+[`windows.displayName`](configuration.md#windows) when the executable and
+its folder should keep a plain name, as `weather.exe` in
+`%LOCALAPPDATA%\Programs\weather` for an app that shows as `天气助手`:
+
+```ts
+export default defineConfig({
+  name: "weather",
+  windows: { displayName: "天气助手" },
+});
+```
+
+Characters that file names cannot hold, such as `:` and `?`, become `-`
+in the names of the shortcuts only. The installer of a version that sets
+`displayName` replaces the shortcuts that an earlier version made under
+the name.
 
 The installer is made with [NSIS](https://nsis.sourceforge.io). On
 Windows, `mygo build` uses NSIS when it is installed, and otherwise
@@ -420,10 +439,11 @@ export default defineConfig({
 
 ## Linux
 
-`mygo build` writes the executable, named after the app in lower case, a
-desktop entry and the icon, and a Debian package, which installs the app
-in `/opt/my-app` with its desktop entry, icons, URL schemes and file
-types:
+`mygo build` writes the executable, named after the app's
+[`slug`](configuration.md#the-app), which is its name in lower case by
+default, a desktop entry and the icon, and a Debian package, which
+installs the app in `/opt/my-app` with its desktop entry, icons, URL
+schemes and file types:
 
 ```ts
 export default defineConfig({
@@ -451,6 +471,14 @@ command, `/usr/bin/my-app` from the package and `~/.local/bin/my-app` from
 [`install.sh`](#the-install-script); without it, neither adds a command,
 which leaves the name to a command-line tool of the same name, such as
 the app's own.
+
+Keep the slug of a released app. Its Linux files are named after it, and
+an update replaces the files of the same names: one to a version with
+another slug leaves the old executable in place, which the desktop entry
+that `install.sh` registered still runs, and the Debian package of the
+new slug is another package, installed next to the old one. Choose the
+slug before the first release, as `cloud-music` for `云音乐`, whose own
+would be `yun-yin-le`.
 
 ### The install script
 
@@ -551,7 +579,7 @@ the lines of every platform's latest files.
 short, not a release whose files someone replaced. On Windows, sign the
 installer ([code signing](#code-signing)) so that Windows shows who made it.
 
-For testing, `MY_APP_DOWNLOAD_URL` (the slug of the app in capitals) is
+For testing, `MY_APP_DOWNLOAD_URL` (the [slug](configuration.md#the-app) of the app in capitals) is
 where both scripts download from instead, `MY_APP_INSTALL_DIR` the folder
 of the app on macOS, and `MY_APP_NO_OPEN=1` leaves the app closed.
 
@@ -574,7 +602,8 @@ its source language first, which the system falls back to:
 
 The app's name and description in a language are its catalog's
 `mygo.appName` and `mygo.appDescription`; the configuration's `name` and
-`linux.comment` are those of the source language. An app without catalogs
+`linux.comment` are those of the source language, and on Windows
+`windows.displayName` in place of `name` when it has one. An app without catalogs
 declares no languages.
 
 On macOS, the other strings of `Info.plist`, such as the reasons the

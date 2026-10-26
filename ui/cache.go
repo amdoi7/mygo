@@ -58,7 +58,7 @@ func (keptLayer) area(e *node) Rect {
 	var walk func(n *node, clip Rect, clipped bool)
 	walk = func(n *node, clip Rect, clipped bool) {
 		for ch := n.first; ch != nil; ch = ch.next {
-			if ch.flags&flagInvisible != 0 || ch.isInline() {
+			if ch.flags&flagInvisible != 0 || ch.hidden || ch.isInline() {
 				continue
 			}
 			// In e's space: e's transform taken off theirs.

@@ -45,12 +45,13 @@ func (p *Painter) draw(e *node, box Rect, after bool) {
 		fn(p, box)
 		return
 	}
-	start, state := len(p.s.Ops), *p
+	rt := p.rt
+	start, state, uses := len(p.s.Ops), *p, rt.text.TransientUses()
 	p.drawing, p.asked = true, false
 	fn(p, box)
 	p.drawing = false
 	if p.asked {
-		rt := p.rt
+		rt.partTransient += rt.text.TransientUses() - uses
 		rt.drawn = append(rt.drawn, paintPart{e: e, after: after, box: box, start: start, end: len(p.s.Ops), painter: state,
 			under: append([]opaqueBox(nil), state.under...), holes: append([]Rect(nil), state.holes...)})
 	}
@@ -80,11 +81,15 @@ func sceneData(s *scene.Scene) int {
 
 // repaintParts paints the parts of the last frame painted again (see
 // paintPart), and reports whether it could: false when the window must be
-// painted whole.
+// painted whole, as when the glyph atlases, which every window shares,
+// moved or forgot the glyphs the rest of the scene draws, as another
+// window making room in them does, or when the rest of the scene draws
+// masks drawn for its frame alone, in room of the atlas that the frames
+// since drew over: painted whole again, they last.
 func (rt *engine) repaintParts() bool {
 	s := &rt.scene
 	if rt.untracked || len(rt.drawn) == 0 || rt.insp.open || rt.drag != nil || rt.noParts ||
-		sceneData(s) > 2*rt.partsBase+partsGrowth {
+		sceneData(s) > 2*rt.partsBase+partsGrowth || atlasGenerations(s) != rt.atlases || rt.transient {
 		return false
 	}
 	rt.partPaints++

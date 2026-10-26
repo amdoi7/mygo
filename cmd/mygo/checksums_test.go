@@ -19,7 +19,7 @@ import (
 func TestChecksums(t *testing.T) {
 	dist := t.TempDir()
 	var artifacts []string
-	for _, name := range []string{"App 1.2.0.dmg", "App Setup 1.2.0 amd64.exe", "app-1.2.0-linux-amd64.tar.gz", "update-linux-amd64.json", "App.exe", "linux-amd64/install.sh", "linux-arm64/install.sh"} {
+	for _, name := range []string{"app-1.2.0.dmg", "app-setup-1.2.0-amd64.exe", "app-1.2.0-linux-amd64.tar.gz", "update-linux-amd64.json", "App.exe", "linux-amd64/install.sh", "linux-arm64/install.sh"} {
 		p := filepath.Join(dist, name)
 		os.MkdirAll(filepath.Dir(p), 0o755)
 		os.WriteFile(p, []byte("hello"), 0o644)
@@ -30,7 +30,7 @@ func TestChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	const hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-	want := hello + "  App 1.2.0.dmg\n" + hello + "  App Setup 1.2.0 amd64.exe\n" + hello + "  app-1.2.0-linux-amd64.tar.gz\n" + hello + "  install.sh\n"
+	want := hello + "  app-1.2.0-linux-amd64.tar.gz\n" + hello + "  app-1.2.0.dmg\n" + hello + "  app-setup-1.2.0-amd64.exe\n" + hello + "  install.sh\n"
 	if b, _ := os.ReadFile(path); string(b) != want {
 		t.Errorf("SHA256SUMS:\n%s\nwant\n%s", b, want)
 	}
@@ -45,11 +45,11 @@ func TestChecksums(t *testing.T) {
 
 	// The lines of an earlier upload stay for the files this one lacks.
 	other := strings.Repeat("a", 64)
-	if err := mergeChecksums(path, []byte(other+"  App Setup 1.2.0 arm64.exe\r\n"+other+"  install.sh\njunk\n"), ""); err != nil {
+	if err := mergeChecksums(path, []byte(other+"  app-setup-1.2.0-arm64.exe\r\n"+other+"  install.sh\njunk\n"), ""); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	if !strings.Contains(string(b), other+"  App Setup 1.2.0 arm64.exe\n") || !strings.Contains(string(b), hello+"  install.sh\n") || strings.Contains(string(b), "junk") {
+	if !strings.Contains(string(b), other+"  app-setup-1.2.0-arm64.exe\n") || !strings.Contains(string(b), hello+"  install.sh\n") || strings.Contains(string(b), "junk") {
 		t.Errorf("merged SHA256SUMS:\n%s", b)
 	}
 
@@ -65,10 +65,10 @@ func TestPublishGitHubChecksums(t *testing.T) {
 	bin, dist := t.TempDir(), t.TempDir()
 	other := strings.Repeat("b", 64)
 	// gh: the release exists, with the SHA256SUMS of another platform.
-	script := "#!/bin/sh\ncase \"$2 $*\" in\n\"view \"*--json*) printf 'App Setup 1.2.0 arm64.exe\\nSHA256SUMS\\n' ;;\ndownload*) [ -z \"$GH_FAIL\" ] || exit 1; for a; do last=$a; done; printf '" + other + "  App Setup 1.2.0 arm64.exe\\n' > \"$last/SHA256SUMS\" ;;\nesac\n"
+	script := "#!/bin/sh\ncase \"$2 $*\" in\n\"view \"*--json*) printf 'app-setup-1.2.0-arm64.exe\\nSHA256SUMS\\n' ;;\ndownload*) [ -z \"$GH_FAIL\" ] || exit 1; for a; do last=$a; done; printf '" + other + "  app-setup-1.2.0-arm64.exe\\n' > \"$last/SHA256SUMS\" ;;\nesac\n"
 	os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	exe := filepath.Join(dist, "App Setup 1.2.0 amd64.exe")
+	exe := filepath.Join(dist, "app-setup-1.2.0-amd64.exe")
 	os.WriteFile(exe, []byte("hello"), 0o644)
 	sums, err := writeChecksums(dist, []string{exe})
 	if err != nil {
@@ -79,7 +79,7 @@ func TestPublishGitHubChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(sums)
-	if !strings.Contains(string(b), other+"  App Setup 1.2.0 arm64.exe\n") || !strings.Contains(string(b), "  App Setup 1.2.0 amd64.exe\n") {
+	if !strings.Contains(string(b), other+"  app-setup-1.2.0-arm64.exe\n") || !strings.Contains(string(b), "  app-setup-1.2.0-amd64.exe\n") {
 		t.Errorf("SHA256SUMS:\n%s", b)
 	}
 	// The release's SHA256SUMS that cannot be downloaded stops the upload,
@@ -121,7 +121,7 @@ func TestInstallPS1(t *testing.T) {
 		for _, line := range append(tc.want,
 			"$appName = 'Jane''s App'\n",
 			"$exeName = 'Jane''s App.exe'\n",
-			"$setupPrefix = 'Jane''s App Setup '\n",
+			"$setupPrefix = 'jane-s-app-setup-'\n",
 			"$identifier = 'com.example.app'\n",
 			"$downloadUrl = $env:JANE_S_APP_DOWNLOAD_URL\n",
 		) {
@@ -155,8 +155,9 @@ func TestInstallPS1(t *testing.T) {
 				break
 			}
 		}
-		// The installer it looks for is the one the build names.
-		if !strings.HasPrefix(installerFileName(c, "arm64"), "Jane's App Setup ") {
+		// The installer it looks for is the one the build names: the
+		// prefix, the version, then -<arch>.exe.
+		if version, ok := strings.CutPrefix(installerFileName(c, "arm64"), "jane-s-app-setup-"); !ok || version != "1.2.0-arm64.exe" || !strings.Contains(script, `'(\S+)-' + $arch + '\.exe)$'`) {
 			t.Errorf("installer %s", installerFileName(c, "arm64"))
 		}
 		if pwsh, err := exec.LookPath("pwsh"); err == nil {
@@ -207,7 +208,7 @@ func TestPublishS3Checksums(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "id")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
 	old, other := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	published := old + "  App Setup 1.1.0 amd64.exe\n" + other + "  App Setup 1.2.0 arm64.exe\n" + old + "  app-1.1.0-linux-amd64.tar.gz\n" + old + "  install.ps1\n"
+	published := old + "  app-setup-1.1.0-amd64.exe\n" + other + "  app-setup-1.2.0-arm64.exe\n" + old + "  app-1.1.0-linux-amd64.tar.gz\n" + old + "  install.ps1\n"
 	var (
 		mu       sync.Mutex
 		uploaded string
@@ -231,7 +232,7 @@ func TestPublishS3Checksums(t *testing.T) {
 	}))
 	defer srv.Close()
 	dist := t.TempDir()
-	exe := filepath.Join(dist, "App Setup 1.2.0 amd64.exe")
+	exe := filepath.Join(dist, "app-setup-1.2.0-amd64.exe")
 	os.WriteFile(exe, []byte("hello"), 0o644)
 	ps1 := filepath.Join(dist, "windows-amd64", "install.ps1")
 	os.MkdirAll(filepath.Dir(ps1), 0o755)
@@ -244,9 +245,9 @@ func TestPublishS3Checksums(t *testing.T) {
 	}{
 		// The other platform's installer and the Linux archive of 1.1.0,
 		// which this upload does not replace, stay.
-		{http.StatusOK, other + "  App Setup 1.2.0 arm64.exe\n" + hello + "  App Setup 1.2.0 amd64.exe\n" + old + "  app-1.1.0-linux-amd64.tar.gz\n" + hello + "  install.ps1\n"},
-		{http.StatusNotFound, hello + "  App Setup 1.2.0 amd64.exe\n" + hello + "  install.ps1\n"},
-		{http.StatusForbidden, hello + "  App Setup 1.2.0 amd64.exe\n" + hello + "  install.ps1\n"},
+		{http.StatusOK, other + "  app-setup-1.2.0-arm64.exe\n" + hello + "  app-setup-1.2.0-amd64.exe\n" + old + "  app-1.1.0-linux-amd64.tar.gz\n" + hello + "  install.ps1\n"},
+		{http.StatusNotFound, hello + "  app-setup-1.2.0-amd64.exe\n" + hello + "  install.ps1\n"},
+		{http.StatusForbidden, hello + "  app-setup-1.2.0-amd64.exe\n" + hello + "  install.ps1\n"},
 	} {
 		sums, err := writeChecksums(dist, []string{exe, ps1})
 		if err != nil {

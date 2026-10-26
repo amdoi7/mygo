@@ -55,6 +55,21 @@ box.Draw(func(p *ui.Painter, r ui.Rect) {
 })
 ```
 
+A stroke has round ends and corners unless its path sets them, as SVG's
+`stroke-linecap`, `stroke-linejoin` and `stroke-miterlimit` do:
+`Path.Cap` ends it flat (`ui.ButtCap`) or square (`ui.SquareCap`), and
+`Path.Join` turns its corners in points (`ui.MiterJoin`, bevelled past
+`Path.MiterLimit`) or cuts them (`ui.BevelJoin`). `Path.Dash` strokes it
+in dashes, as `stroke-dasharray` and `stroke-dashoffset` do, and they stay
+where they are as `Trim` draws the path in:
+
+```go
+box.Draw(func(p *ui.Painter, r ui.Rect) {
+	edge := (&ui.Path{}).MoveTo(r.X, r.Y+r.H/2).LineTo(r.X+r.W, r.Y+r.H/2)
+	p.StrokePath(edge.Cap(ui.ButtCap).Dash(0, 6, 4), 1.5, c.Theme().TextMuted)
+})
+```
+
 ## Parts of bitmaps
 
 A bitmap can hold many pictures: the icons of a sheet, the frames of an

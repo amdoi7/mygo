@@ -24,6 +24,11 @@ type nativeItem struct {
 	item     ptr
 	check    bool
 	windowID int // menu bar or popup's window; 0 for a tray
+	// icon is the item's icon; image and label are the widgets of an item
+	// that shows one, or did (menuicon.go).
+	icon         *platform.MenuIcon
+	image, label ptr
+	bar          bool // an item of a menu bar, which shows no icon
 }
 
 var (
@@ -193,14 +198,15 @@ func dropOwner(owner int) {
 	}
 }
 
-// buildMenu fills a GtkMenuShell with items.
-func buildMenu(shell ptr, m *platform.Menu, accel ptr, owner, windowID int) {
+// buildMenu fills a GtkMenuShell with items; bar is a menu bar's, whose
+// own items show no icons.
+func buildMenu(shell ptr, m *platform.Menu, accel ptr, owner, windowID int, bar bool) {
 	for _, it := range m.Items {
-		gtkMenuShellAppend(shell, buildItem(it, accel, owner, windowID))
+		gtkMenuShellAppend(shell, buildItem(it, accel, owner, windowID, bar))
 	}
 }
 
-func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int) ptr {
+func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int, bar bool) ptr {
 	var item ptr
 	check := false
 	switch it.Type {
@@ -215,7 +221,7 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int) ptr {
 	}
 	if it.Submenu != nil {
 		sub := gtkMenuNew()
-		buildMenu(sub, it.Submenu, accel, owner, windowID)
+		buildMenu(sub, it.Submenu, accel, owner, windowID, false)
 		gtkMenuItemSetSubmenu(item, sub)
 	} else if it.Type != platform.MenuItemSeparator {
 		connect(item, "activate", cbMenuActivate, ptr(it.ID))
@@ -233,7 +239,14 @@ func buildItem(it *platform.MenuItem, accel ptr, owner, windowID int) ptr {
 		}
 	}
 	applyState(item, it, check)
-	itemsByID[it.ID] = append(itemsByID[it.ID], nativeItem{owner: owner, item: item, check: check, windowID: windowID})
+	n := nativeItem{owner: owner, item: item, check: check, windowID: windowID, bar: bar}
+	if it.Icon != nil && it.Type != platform.MenuItemSeparator && !bar && setMenuItemIcon != nil {
+		n.icon = it.Icon
+		if windowID != 0 {
+			setMenuItemIcon(&n, it.Icon) // a tray's once its menu is exported
+		}
+	}
+	itemsByID[it.ID] = append(itemsByID[it.ID], n)
 	return item
 }
 
@@ -342,7 +355,7 @@ func (w *window) installMenu(m *platform.Menu) {
 	}
 	w.owner = newOwner()
 	w.menubar = gtkMenuBarNew()
-	buildMenu(w.menubar, m, w.accel, w.owner, w.id)
+	buildMenu(w.menubar, m, w.accel, w.owner, w.id, true)
 	gtkBoxPackStart(w.box, w.menubar, false, false, 0)
 	gtkBoxReorderChild(w.box, w.menubar, 0)
 	gtkWidgetShowAll(w.menubar)
@@ -399,9 +412,20 @@ func firstMenu(bar ptr) ptr {
 }
 
 func (b *Backend) UpdateMenuItem(it *platform.MenuItem) {
-	for _, n := range itemsByID[it.ID] {
+	// New windows build the application menu as it is now.
+	b.appMenu.Apply(it)
+	for i := range itemsByID[it.ID] {
+		n := &itemsByID[it.ID][i]
 		if it.Type != platform.MenuItemSeparator {
-			gtkMenuItemSetLabel(n.item, cs(it.Label))
+			if n.label != 0 {
+				gtkLabelSetLabel(n.label, cs(it.Label))
+			} else {
+				gtkMenuItemSetLabel(n.item, cs(it.Label))
+			}
+			if it.Icon != n.icon && !n.bar && setMenuItemIcon != nil {
+				n.icon = it.Icon
+				setMenuItemIcon(n, it.Icon)
+			}
 		}
 		applyState(n.item, it, n.check)
 	}
@@ -427,7 +451,7 @@ func (b *Backend) PopupMenu(m *platform.Menu, pw platform.Window, pos *platform.
 	owner := newOwner()
 	defer dropOwner(owner)
 	menu := gtkMenuNew()
-	buildMenu(menu, m, 0, owner, w.id)
+	buildMenu(menu, m, 0, owner, w.id, false)
 	gtkWidgetShowAll(menu)
 	event, anchor := w.popupTrigger(), w.contentWindow()
 	const northWest = 1 // GDK_GRAVITY_NORTH_WEST
@@ -540,11 +564,19 @@ func (t *tray) SetMenu(m *platform.Menu) {
 	t.owner = newOwner()
 	menu := gtkMenuNew()
 	if m != nil {
-		buildMenu(menu, m, 0, t.owner, 0)
+		buildMenu(menu, m, 0, t.owner, 0, false)
 	}
 	gtkWidgetShowAll(menu)
 	appIndicatorSetMenu(t.ind, menu)
 	t.menu = menu
+	// The items are exported now: give them their icons.
+	for _, list := range itemsByID {
+		for _, n := range list {
+			if n.owner == t.owner && n.icon != nil {
+				setMenuItemIcon(&n, n.icon)
+			}
+		}
+	}
 }
 
 func (t *tray) PopUpMenu(*platform.Menu) {}

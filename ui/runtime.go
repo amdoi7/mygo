@@ -338,17 +338,24 @@ type engine struct {
 	// the window is painted whole. partsBase is how much data the scene
 	// held painted whole (sceneData), partOps the operations of the scene
 	// painted before, and partPaints counts the frames painted in parts;
-	// noParts paints every frame whole, for tests that compare.
-	drawn      []paintPart
-	untracked  bool
-	partsBase  int
-	partOps    []scene.Op
-	partPaints int
-	noParts    bool
-	paceEvery  int
-	paceRate   float32
-	pacedAt    time.Time
-	pacedNext  time.Time
+	// noParts paints every frame whole, for tests that compare. atlases
+	// are the generations of the glyph atlases the scene was painted with,
+	// partTransient how many masks of the atlas's transient room the parts
+	// drew (text.System.TransientUses), and transient whether the rest of
+	// the scene draws any.
+	drawn         []paintPart
+	untracked     bool
+	partsBase     int
+	atlases       [2]uint64
+	partTransient uint64
+	transient     bool
+	partOps       []scene.Op
+	partPaints    int
+	noParts       bool
+	paceEvery     int
+	paceRate      float32
+	pacedAt       time.Time
+	pacedNext     time.Time
 	// inkStale tells that elements moved since commit found their ink
 	// (node.ink), as poses do in frames that only paint: painting then
 	// skips none.
@@ -380,6 +387,8 @@ type engine struct {
 	// the page around the elements being committed.
 	kept       map[uint64]bool
 	commitPage uint64
+	// commitHidden is set while commit is inside a Hidden element.
+	commitHidden bool
 	// announcements are the texts for assistive technology to read out
 	// (Context.Announce).
 	announcements []string
@@ -1090,8 +1099,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	if e.kind == kindText && e.first != nil && !inline {
 		placeInline(e, e, 0)
 	}
+	savedHidden := rt.commitHidden
+	rt.commitHidden = savedHidden || e.hidden
 	saved, savedPage := rt.enterScope(e), rt.commitPage
-	defer func() { rt.commitScope, rt.commitPage = saved, savedPage }()
+	defer func() { rt.commitScope, rt.commitPage, rt.commitHidden = saved, savedPage, savedHidden }()
 	s := e.st
 	s.page = rt.commitPage
 	if e.flags&flagPage != 0 {
@@ -1154,8 +1165,8 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 	}
 	// What is invisible keeps its box but takes neither the pointer nor
 	// the focus, and has no text to find; so does what is inert, which
-	// shows.
-	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.backface && e.transform.facesAway()
+	// shows, and what is Hidden, which has no box.
+	invisible := e.flags&(flagInvisible|flagInert) != 0 || hidden || e.hidden || e.backface && e.transform.facesAway()
 	if invisible {
 		s.vw, s.vh = 0, 0
 		if rt.focused == e.id {
@@ -1222,6 +1233,10 @@ func (rt *engine) commitElement(e *node, clip Rect, hidden bool) {
 		}
 	}
 	e.setInk(vis)
+	if e.hidden {
+		// It paints nothing, wherever it is.
+		e.ink, e.noCull = [4]float32{inf, inf, -inf, -inf}, false
+	}
 }
 
 func intersect(a, b Rect) Rect {

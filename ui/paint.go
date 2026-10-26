@@ -73,6 +73,8 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	}
 	rt.painter = Painter{rt: rt, s: s, scale: scale, opacity: 1, clip: Rect{0, 0, w, h}, opaque: opaque, under: under, holes: rt.holes[:0]}
 	p := &rt.painter
+	uses := rt.text.TransientUses()
+	rt.partTransient = 0
 	p.cull = !rt.inkStale && !rt.noCull
 	p.element(root)
 	p.cull = false
@@ -82,6 +84,14 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	rt.paintDrag(p, w, h)
 	rt.under, rt.holes = p.under[:0], p.holes[:0] // kept for the next frame's
 	rt.partsBase = sceneData(s)
+	rt.atlases = atlasGenerations(s)
+	rt.transient = rt.text.TransientUses()-uses > rt.partTransient
+}
+
+// atlasGenerations returns the generations of the atlases s draws glyphs
+// and masks from.
+func atlasGenerations(s *scene.Scene) [2]uint64 {
+	return [2]uint64{s.MaskAtlas.Generation(), s.ColorAtlas.Generation()}
 }
 
 // Now returns the time of the frame being painted, which drawings that
@@ -213,6 +223,9 @@ func (p *Painter) paintable(e *node) bool {
 }
 
 func (p *Painter) element(e *node) {
+	if e.hidden {
+		return
+	}
 	savedTransform, savedInline := p.transform, p.inline
 	p.transform, p.inline = e.world, nil
 	defer func() { p.transform, p.inline = savedTransform, savedInline }()
@@ -631,7 +644,7 @@ func (p *Painter) dividers(e *node) {
 	}
 	var prev *node
 	for c := e.first; c != nil; c = c.next {
-		if c.flags&flagAbsolute != 0 || c.collapsed {
+		if c.flags&flagAbsolute != 0 || c.collapsed || c.hidden {
 			continue
 		}
 		if f := e.list; f != nil {
@@ -687,7 +700,7 @@ func (p *Painter) debug(e *node) {
 	p.opacity = 1
 	var walk func(e *node)
 	walk = func(e *node) {
-		if e.flags&flagInvisible != 0 {
+		if e.flags&flagInvisible != 0 || e.hidden {
 			return
 		}
 		box := Rect{e.x, e.y, e.w, e.h}

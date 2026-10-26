@@ -3807,7 +3807,8 @@ func (_handle Element) FixedLineHeight(v float32) Element {
 }
 
 // Focus gives the element the keyboard focus. Called in every frame, it
-// keeps it there; AutoFocus gives it once.
+// keeps it there; AutoFocus gives it once. A field around an input, as
+// SearchField's, gives it to its input, where typing goes.
 func (_handle Element) Focus() Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -3886,7 +3887,8 @@ func (_handle Element) Focusable() Element {
 	return wrapElement(_node.Focusable())
 }
 
-// Focused reports whether the element has the keyboard focus.
+// Focused reports whether the element has the keyboard focus: for a field
+// around an input, as SearchField's, whether its input has it.
 func (_handle Element) Focused() bool {
 	_node := _handle.node()
 	if _node == nil {
@@ -4095,6 +4097,29 @@ func (_handle Element) HeightPercent(p float32) Element {
 	return wrapElement(_node.HeightPercent(p))
 }
 
+// Hidden hides the element and its children when hide is true, as CSS's
+// display: none does: unlike an Invisible element, it takes no room in
+// the layout, nor a gap between its siblings, and draws nothing, takes
+// neither the pointer nor the focus, and is not read by assistive
+// technology. It is still built, so that what is inside it keeps its
+// state (scroll offsets, text being edited, animations) while it is
+// hidden, and shows as it was once hide is false again:
+//
+//	ui.Column(c).Hidden(!app.showDetails).Children(func() { ... })
+//
+// The focus leaves it as it hides, and what is attached to it
+// (AttachTo) hides with it. A List's rows are built as the list lays out,
+// so a hidden List builds none.
+func (_handle Element) Hidden(hide bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Hidden(hide))
+}
+
 // Highlighted reports whether an option of a select is the one the pointer
 // or the arrows are on.
 func (_handle Element) Highlighted() bool {
@@ -4182,7 +4207,7 @@ func (_handle Element) InsetShadow(x float32, y float32, blur float32, spread fl
 
 // Invisible hides the element and its children, which keep their room in
 // the layout but draw nothing and take neither the pointer nor the focus,
-// as CSS's visibility: hidden does.
+// as CSS's visibility: hidden does. Hidden takes the room away too.
 func (_handle Element) Invisible() Element {
 	_node := _handle.node()
 	if _node == nil {
