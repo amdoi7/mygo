@@ -234,6 +234,7 @@ func (w *Window) handleMessage(msg string) {
 		C int64   `json:"c"` // channels
 		K string  `json:"k"`
 		N int64   `json:"n"`
+		V string  `json:"v"` // theme-color
 	}
 	if err := json.Unmarshal(stringBytes(msg), &m); err != nil {
 		return
@@ -252,6 +253,9 @@ func (w *Window) handleMessage(msg string) {
 		w.flush()
 		fire(&w.onDOMReady)
 		w.readyToShow()
+	case "theme-color":
+		c, err := parseColor(m.V)
+		w.setThemeColor(c, m.V != "" && err == nil)
 	case "drag":
 		if w.native != nil {
 			w.native.StartDrag()

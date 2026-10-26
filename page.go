@@ -1,5 +1,11 @@
 package mygo
 
+import (
+	"image/color"
+
+	"github.com/egoist/mygo/internal/platform"
+)
+
 // Page is the web page a window shows: what it loads, the scripts it runs,
 // its developer tools and its events. A window showing native UI
 // (WindowOptions.Content) has none.
@@ -26,6 +32,75 @@ func (p *Page) Window() *Window { return p.w.top() }
 // WebView returns the web view whose page this is, nil for the page of a
 // window.
 func (p *Page) WebView() *WebView { return p.w.webView }
+
+// ThemeColor returns the page's theme color, and false when it has none:
+// the content of the first <meta name="theme-color"> in the page's head
+// whose media attribute is absent or matches, and whose content is a CSS
+// color, as browsers pick it. A page with one for light and one for dark
+// appearance,
+//
+//	<meta name="theme-color" content="#fff" media="(prefers-color-scheme: light)">
+//	<meta name="theme-color" content="#111" media="(prefers-color-scheme: dark)">
+//
+// has the one of the app's appearance (Theme). The color is 8-bit sRGB
+// with straight alpha, as the page's engine computes it, whatever the CSS
+// syntax: ui.RGB(c.R, c.G, c.B) makes it a ui.Color.
+//
+// MyGo's runtime in the page tells it, on every platform alike, in pages of
+// any origin, trusted or not; a page it doesn't run in, such as an image
+// or a PDF, has none. A page that just started loading still has the color
+// of the one before until its DOM is ready, so that going between pages of
+// the same color changes nothing.
+func (p *Page) ThemeColor() (c color.NRGBA, ok bool) {
+	onMain(func() {
+		if p.w.native != nil && p.w.hasThemeColor {
+			c, ok = nrgba(p.w.themeColor), true
+		}
+	})
+	return c, ok
+}
+
+// OnThemeColorChanged is called when the page's theme color (ThemeColor)
+// changed, with ok false when it has none any more: its meta was added,
+// removed or changed, the app's appearance changed and another meta's
+// media matches, or another page has another color. It is called on the
+// main thread, as other events are, and only when the color changed.
+//
+//	page.OnThemeColorChanged(func(c color.NRGBA, ok bool) {
+//		if ok {
+//			toolbar.SetBackground(ui.RGB(c.R, c.G, c.B))
+//		}
+//	})
+func (p *Page) OnThemeColorChanged(fn func(c color.NRGBA, ok bool)) (off func()) {
+	return p.w.onThemeColorChanged.add(fn, false)
+}
+
+// setThemeColor sets the page's theme color, as its bridge told it, and
+// tells the listeners if it changed. Main thread only.
+func (w *Window) setThemeColor(c platform.Color, ok bool) {
+	w.themeColorPending = false
+	if !ok {
+		c = platform.Color{}
+	}
+	if ok == w.hasThemeColor && c == w.themeColor {
+		return
+	}
+	w.themeColor, w.hasThemeColor = c, ok
+	for _, fn := range w.onThemeColorChanged.snapshot() {
+		fn(nrgba(c), ok)
+	}
+}
+
+// themeColorSettled runs once the page loaded, or failed to: a page whose
+// bridge did not tell its theme color since its navigation committed has
+// none. Main thread only.
+func (w *Window) themeColorSettled() {
+	if w.themeColorPending {
+		w.setThemeColor(platform.Color{}, false)
+	}
+}
+
+func nrgba(c platform.Color) color.NRGBA { return color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A} }
 
 // PageOptions configure the web page of a window.
 type PageOptions struct {

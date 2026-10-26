@@ -30,6 +30,8 @@ export type Outgoing =
   | { t: "chan-ack"; c: number; k: string; n: number }
   | { t: "chan-close"; c: number; k: string }
   | { t: "dom-ready" }
+  /** The page's theme color changed: #rrggbbaa, or "" for none. */
+  | { t: "theme-color"; v: string }
   | { t: "drag" }
   | { t: "dblclick" };
 

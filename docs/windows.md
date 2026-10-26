@@ -512,6 +512,7 @@ Page events, on `win.Page()`:
 | `OnDidFinishLoad` | the page finished loading |
 | `OnDidFailLoad(func(err *mygo.LoadError))` | the page failed to load |
 | `OnPageTitleUpdated(func(e *mygo.TitleEvent))` | the page's `<title>` changed; preventing the event keeps the window title as it is |
+| `OnThemeColorChanged(func(c color.NRGBA, ok bool))` | the page's [theme color](#the-theme-color) changed; `ok` is false when it has none any more |
 | `OnRenderProcessGone(func(reason string))` | the web content process crashed or was killed; `Reload` recovers |
 
 Keep a window on the app's own pages and open other links in the browser:
@@ -530,6 +531,46 @@ check the host, or `mygo.IsDev()`, when your rule depends on the scheme.
 
 Links that open new windows go through the window's open handler, see
 [links and new windows](frontend.md#links-and-new-windows).
+
+### The theme color
+
+`ThemeColor` returns the page's theme color, its `<meta name="theme-color">`,
+so that the app can tint its title bar, toolbar or window background to
+match the page, as Safari does; `OnThemeColorChanged` tells when it
+changes:
+
+```go
+page := win.Page()
+page.OnThemeColorChanged(func(c color.NRGBA, ok bool) {
+	if !ok {
+		c = defaultToolbarColor // the page has none
+	}
+	toolbar.SetBackground(ui.RGB(c.R, c.G, c.B))
+})
+```
+
+A page may have one color for light appearance and another for dark, with
+the metas' `media`:
+
+```html
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)">
+```
+
+The color is the content of the first meta named `theme-color` in the
+page's `<head>` whose `media` is absent or matches, and whose content is a
+color, as browsers pick it. The page's engine computes it, so any CSS color
+works (`dodgerblue`, `rgb(30 144 255 / 50%)`, `oklch(…)`), and it comes as
+8-bit sRGB with straight alpha. The event fires only when the color
+changes: when the page adds, removes or changes its metas, when the app's
+appearance ([`Theme`](native.md#dark-mode)) changes and another meta's
+`media` matches, and when another page has another color. A page that just started loading
+keeps the color of the one before until its DOM is ready, so going between
+pages of the same color fires nothing.
+
+MyGo's runtime in the page watches the metas, the same way on every
+platform, in pages of any origin, trusted or not. A page the runtime does
+not run in, as an image or a PDF the web view shows, has no theme color.
 
 ### Find in page
 

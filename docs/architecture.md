@@ -817,6 +817,20 @@ document start into the main frame. It installs:
   as the `mygo:file-drop` event, to trusted pages only. Event names starting
   with `mygo:` are reserved.
 
+- The page's theme color (`theme-color.ts`, `Page.ThemeColor`): the first
+  `<meta name="theme-color">` of the head whose `media` matches and whose
+  content is a color, which a canvas's `fillStyle` parses (a color it does
+  not serialize as sRGB is drawn and read back), posted as
+  `{t:"theme-color", v:"#rrggbbaa"}` (`""` for none) when it changes. A
+  `MutationObserver` watches the head, not the body, so pages that change
+  their body pay nothing, and `matchMedia` the metas' media, so a change of
+  appearance picks another. Before DOMContentLoaded it posts only colors,
+  then whatever it found, before dom-ready: the core keeps the previous
+  page's color from the commit until then, so pages of the same color
+  change nothing, and drops it at the load's end for a page that never
+  told one (no bridge, as an image). The same in every engine: WKWebView's
+  `themeColor` (macOS 12+) would need KVO, and WebView2 and WebKitGTK have
+  none.
 - Find in page (`find.ts`, `Page.FindInPage`): the bridge walks the
   visible text nodes, marks matches with the CSS Custom Highlight API (a
   constructed style sheet, which a Content Security Policy allows) and
@@ -882,6 +896,7 @@ Trust):
 | `{"t":"chan-ack","c":N,"k":token,"n":S}` | the page took the values of channel N up to the S-th |
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
 | `{"t":"dom-ready"}` | DOMContentLoaded fired |
+| `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
 
 Go → page, batched into one `__mygo.receive([...])` evaluation per
@@ -4487,6 +4502,7 @@ which npm allows only for packages that exist: the first release uses an
 | downloads | `shouldPerformDownload`, non-displayable or attachment responses → `WKDownload` delegate | `download-started` / `decide-destination` on the web context; response policy for attachments | `DownloadStarting` (`ICoreWebView2_4`), replacing WebView2's download UI |
 | Cookies | the default `WKWebsiteDataStore`'s `WKHTTPCookieStore`, URLs matched in Go (`platform.CookieMatchesURL`), `Set` through `NSHTTPCookie`'s parser with a stand-in name and value; `Clear` with `removeDataOfTypes:` | the default web context's `WebKitCookieManager` (2.42+; `get_cookies` for a URL), kept in `cookies.sqlite` of the user data directory (`set_persistent_storage`, as WebKitGTK keeps them in memory otherwise); libsoup 3 or 2.4 to match WebKitGTK 4.1 or 4.0; `Clear` with `webkit_website_data_manager_clear` | `ICoreWebView2CookieManager` (`ICoreWebView2_2`) of a window's web view, or before one shows a page of a hidden web view of the app window, closed once one does; a window's first navigation waits for the calls under way; `ClearBrowsingData` goes the same way; changes are polled with `GetCookies` until they show, failing after 2 s; `GetCookies(uri)`, `DeleteAllCookies`; `put_Expires` called with `comCallFloat` |
 | content rules | the default `WKContentRuleListStore`, which keeps compiled lists under an identifier of the id and a hash of the rules (looked up first, the id's others removed), on each window's `WKUserContentController`; the store's reason for a failure is in `NSHelpAnchorErrorKey` | a `WebKitUserContentFilterStore` in `content-rules` of the user data directory (2.24+), on each window's `WebKitUserContentManager` | matched in Go (`internal/contentrules`, indexed by the domains of `url-filter`s and four bytes of their literals) from `WebResourceRequested` with a `*` filter, blocked pages answered with an empty 403 and other blocked requests with a redirect to `data:`, which Chromium fails as a network error; WebSocket handshakes never reach it; `css-display-none` rules as a style sheet a document-creation script adopts, kept when the page sets `adoptedStyleSheets`; parsed on a goroutine, nothing kept |
+| `Page.ThemeColor` | the bridge, as elsewhere; WKWebView's `themeColor` (macOS 12+) is not used | the bridge | the bridge |
 | `Page.ProcessID` | the web content process, `-[WKWebView _webProcessIdentifier]` (private, looked up with `respondsToSelector:`) | 0: WebKitGTK has no API for it | the browser process the app's web views share, `ICoreWebView2::get_BrowserProcessId` |
 | ClearBrowsingData | default `WKWebsiteDataStore`, all types | the web context's website data manager | the WebView2 profile's `ClearBrowsingDataAll` (needs a window) |
 | permissions | `WKUIDelegate` media capture (camera, microphone) | `permission-request` (camera, microphone, geolocation, notifications) | `PermissionRequested` (the same four; WebView2 asks about others) |

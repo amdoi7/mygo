@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"log"
 	"net/url"
 	"os"
@@ -339,6 +340,16 @@ type Window struct {
 	onDidFinishLoad    listeners[func()]
 	onDidFailLoad      listeners[func(*LoadError)]
 	onRenderGone       listeners[func(string)]
+
+	// themeColor is the page's theme color, as its bridge told it, and
+	// hasThemeColor whether it has one. themeColorPending is set from a
+	// navigation's commit until the new page tells its color, which it
+	// does by the time its DOM is ready; a page without the bridge (an
+	// image) never does, and has none once it loaded. Main thread only.
+	themeColor          platform.Color
+	hasThemeColor       bool
+	themeColorPending   bool
+	onThemeColorChanged listeners[func(color.NRGBA, bool)]
 }
 
 // LoadError describes a failed page load.
@@ -1786,16 +1797,19 @@ func (h *windowHandler) NavigationCommitted(url string) {
 	h.w.domReady = false
 	h.w.outMu.Unlock()
 	h.w.resetPage()
+	h.w.themeColorPending = true
 	fire1(&h.w.onDidNavigate, url)
 }
 
 func (h *windowHandler) LoadFinished() {
+	h.w.themeColorSettled()
 	fire(&h.w.onDidFinishLoad)
 	// Pages without the bridge (e.g. images) never report DOM ready.
 	h.w.readyToShow()
 }
 
 func (h *windowHandler) LoadFailed(url string, code int, desc string) {
+	h.w.themeColorSettled()
 	fire1(&h.w.onDidFailLoad, &LoadError{URL: url, Code: code, Description: desc})
 }
 

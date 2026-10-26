@@ -4,6 +4,7 @@ package mygo
 
 import (
 	"errors"
+	"image/color"
 	"slices"
 	"testing"
 
@@ -53,5 +54,86 @@ func TestPageProcessIDAfterClose(t *testing.T) {
 	w.Destroy()
 	if got := p.ProcessID(); got != 0 {
 		t.Errorf("ProcessID of a closed window's page: %d", got)
+	}
+}
+
+func TestPageThemeColor(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	p := w.Page()
+	type change struct {
+		c  color.NRGBA
+		ok bool
+	}
+	var changes []change // listeners run on the main thread, as page does
+	off := p.OnThemeColorChanged(func(c color.NRGBA, ok bool) { changes = append(changes, change{c, ok}) })
+	defer off()
+	expect := func(what string, want ...change) {
+		t.Helper()
+		if !slices.Equal(changes, want) {
+			t.Errorf("%s: changes %v, want %v", what, changes, want)
+		}
+		changes = nil
+	}
+	if c, ok := p.ThemeColor(); ok {
+		t.Errorf("ThemeColor of a new page: %v", c)
+	}
+
+	blue := color.NRGBA{R: 0x1e, G: 0x90, B: 0xff, A: 0xff}
+	page(fw, `{"t":"theme-color","v":"#1e90ffff"}`)
+	if c, ok := p.ThemeColor(); !ok || c != blue {
+		t.Errorf("ThemeColor = %v, %v; want %v", c, ok, blue)
+	}
+	expect("a meta", change{blue, true})
+	page(fw, `{"t":"theme-color","v":"#1e90ffff"}`)
+	expect("the same color")
+	half := color.NRGBA{R: 255, A: 0x80}
+	page(fw, `{"t":"theme-color","v":"#ff000080"}`)
+	expect("a translucent color", change{half, true})
+	page(fw, `{"t":"theme-color","v":""}`)
+	if c, ok := p.ThemeColor(); ok {
+		t.Errorf("ThemeColor after the meta went: %v", c)
+	}
+	expect("the meta removed", change{})
+	page(fw, `{"t":"theme-color","v":""}`)
+	page(fw, `{"t":"theme-color","v":"not a color"}`)
+	expect("no color still")
+
+	// Another page keeps the color until it tells its own, and changes
+	// nothing when that is the same.
+	page(fw, `{"t":"theme-color","v":"#1e90ffff"}`)
+	expect("a meta again", change{blue, true})
+	onMain(func() { fw.H.NavigationCommitted("https://next.example/") })
+	if c, ok := p.ThemeColor(); !ok || c != blue {
+		t.Errorf("ThemeColor as the next page loads = %v, %v", c, ok)
+	}
+	page(fw, `{"t":"theme-color","v":"#1e90ffff"}`)
+	page(fw, `{"t":"dom-ready"}`)
+	onMain(fw.H.LoadFinished)
+	expect("a page of the same color")
+
+	// A page without the bridge, an image, has none once it loaded.
+	onMain(func() { fw.H.NavigationCommitted("https://next.example/a.png") })
+	expect("an image loading")
+	onMain(fw.H.LoadFinished)
+	expect("an image loaded", change{})
+	onMain(func() { fw.H.LoadFailed("https://next.example/b", 1, "nope") })
+	expect("a failed load")
+
+	off()
+	page(fw, `{"t":"theme-color","v":"#1e90ffff"}`)
+	expect("after off")
+	w.Destroy()
+	if c, ok := p.ThemeColor(); ok {
+		t.Errorf("ThemeColor of a closed window's page: %v", c)
+	}
+}
+
+// Only the page's bridge tells the theme color, not another frame, which
+// lacks its secret.
+func TestPageThemeColorNeedsSecret(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	onMain(func() { fw.H.Message(`{"t":"theme-color","v":"#ff0000ff"}`) })
+	if c, ok := w.Page().ThemeColor(); ok {
+		t.Errorf("ThemeColor from a message without the secret: %v", c)
 	}
 }

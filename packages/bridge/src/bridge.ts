@@ -2,6 +2,7 @@
 // The Go side wraps the bundle in a function that defines __MYGO_CONFIG__.
 import { find, stopFind } from "./find";
 import { createRuntime } from "./runtime";
+import { watchThemeColor } from "./theme-color";
 import type { BridgeConfig, ThemePreferences } from "./types";
 
 declare const __MYGO_CONFIG__: BridgeConfig;
@@ -52,10 +53,23 @@ const INTERACTIVE =
     }
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => notify("dom-ready"), { once: true });
-  } else {
+  // The page's theme color, for Page.ThemeColor; told before dom-ready, so
+  // that Go knows it once the DOM is.
+  const themeColorReady = watchThemeColor((v) => {
+    try {
+      post(JSON.stringify({ t: "theme-color", v }));
+    } catch {
+      // The page is being torn down.
+    }
+  });
+  const domReady = () => {
+    themeColorReady();
     notify("dom-ready");
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", domReady, { once: true });
+  } else {
+    domReady();
   }
 
   const nativeRegion = typeof CSS !== "undefined" && CSS.supports("-webkit-app-region", "drag");
