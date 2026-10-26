@@ -70,10 +70,19 @@ export function fitContent(
     const viewport = document.scrollingElement ?? root;
     const sw = Math.max(innerWidth - viewport.clientWidth, 0);
     const sh = Math.max(innerHeight - viewport.clientHeight, 0);
-    if (sw !== scrollbar) {
-      scrollbar = sw;
-      if (!fromObserver) apply();
-      else if (!pending) {
+    let r = root.getBoundingClientRect();
+    // A vertical scrollbar shows for a moment whenever the content grows
+    // before the window does, and an engine may keep it while it lays out
+    // (WebKit does): its room is left out of the width only where the
+    // content is taller than the window may be, and Go decides whether it
+    // counts in the window's.
+    const room = limits.maxHeight > 0 && r.height > limits.maxHeight ? sw : 0;
+    if (room !== scrollbar) {
+      scrollbar = room;
+      if (!fromObserver) {
+        apply();
+        r = root.getBoundingClientRect();
+      } else if (!pending) {
         pending = true;
         requestAnimationFrame(() => {
           pending = false;
@@ -81,10 +90,8 @@ export function fitContent(
         });
       }
     }
-    // A vertical scrollbar shows for a moment as the content grows, before
-    // the window does, so Go decides whether its room counts; the content
-    // overflows the root only when the root is at its maximum width.
-    const r = root.getBoundingClientRect();
+    // The content overflows the root only when the root is at its maximum
+    // width.
     const body = document.body;
     const wider = !!body && body.scrollWidth > body.clientWidth;
     report({ w: r.width, h: r.height, sw, sh: wider ? sh : 0 });

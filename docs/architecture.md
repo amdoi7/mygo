@@ -838,7 +838,7 @@ document start into the main frame. It installs:
   `:where(:root){width:max-content;min-width;max-width;min-height}` to
   MyGo's style sheet, without specificity so that a page's own size for
   `html` wins, with the room of a vertical scrollbar left out of the
-  widths. At DOMContentLoaded, before dom-ready, and then from a
+  widths while the content is taller than the maximum height. At DOMContentLoaded, before dom-ready, and then from a
   `ResizeObserver` on the root and the window's `resize` events, it posts
   `{t:"content-size", w, h, sw, sh}`, the root's border box and the
   scrollbars' room in CSS pixels, when it changes; `sh` only while the
