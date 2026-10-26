@@ -840,9 +840,15 @@ document start into the main frame. It installs:
   `html` wins, with the room of a vertical scrollbar left out of the
   widths. At DOMContentLoaded, before dom-ready, and then from a
   `ResizeObserver` on the root and the window's `resize` events, it posts
-  `{t:"content-size", w, h}`, the root's border box and the scrollbars'
-  room in CSS pixels, when it changes. The core turns it into DIPs at the
-  page's zoom (a fraction of a pixel takes one), clamps it, and resizes a
+  `{t:"content-size", w, h, sw, sh}`, the root's border box and the
+  scrollbars' room in CSS pixels, when it changes; `sh` only while the
+  content is wider than the root (the body overflows), as at the maximum
+  width. The core turns it into DIPs at the page's zoom (a fraction of a
+  pixel takes one) and clamps it. The vertical scrollbar's room counts
+  only where the content is taller than the window may be (its maximum
+  height or the work area): the page shows one for a moment whenever the
+  content grows before the window does, and counting it then would undo a
+  size the user just gave the window. It resizes a
   flyout where it goes, or a window's content bounds, only in the
   dimension that changed and not while maximized or in full screen,
   within its display's work area; a size equal to the last it took does
@@ -915,7 +921,7 @@ Trust):
 | `{"t":"chan-close","c":N,"k":token}` | the page closed channel N |
 | `{"t":"dom-ready"}` | DOMContentLoaded fired |
 | `{"t":"theme-color","v":"#rrggbbaa"}` | the page's theme color changed; `""` for none |
-| `{"t":"content-size","w":W,"h":H}` | the size of the content of a window that fits it, in CSS pixels |
+| `{"t":"content-size","w":W,"h":H,"sw":SW,"sh":SH}` | the size of the content of a window that fits it, and the room of its scrollbars, in CSS pixels |
 | `{"t":"drag"}` / `{"t":"dblclick"}` | mousedown / double click on a drag region |
 
 Go → page, batched into one `__mygo.receive([...])` evaluation per

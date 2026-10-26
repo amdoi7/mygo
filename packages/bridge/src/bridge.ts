@@ -76,9 +76,9 @@ let rootStyle: HTMLStyleElement | null = null;
   // at its size.
   const fit =
     __MYGO_CONFIG__.fit &&
-    fitContent(__MYGO_CONFIG__.fit, setFitRule, (w, h) => {
+    fitContent(__MYGO_CONFIG__.fit, setFitRule, (size) => {
       try {
-        post(JSON.stringify({ t: "content-size", w, h }));
+        post(JSON.stringify({ t: "content-size", ...size }));
       } catch {
         // The page is being torn down.
       }

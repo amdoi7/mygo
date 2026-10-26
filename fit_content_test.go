@@ -3,6 +3,7 @@
 package mygo
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -25,17 +26,46 @@ func TestFitContentDIPs(t *testing.T) {
 		{500, 400, 1, platform.Size{Width: 300, Height: 200}},    // the maximum
 		{0, 0, 1, platform.Size{Width: 100, Height: 40}},
 	} {
-		if got, ok := f.fit(c.w, c.h, c.zoom); !ok || got != c.want {
+		if got, ok := f.fit(contentSize{Width: c.w, Height: c.h}, c.zoom, 0); !ok || got != c.want {
 			t.Errorf("fit(%v, %v, zoom %v) = %v, %v; want %v", c.w, c.h, c.zoom, got, ok, c.want)
 		}
 	}
 	unbounded := &fitContent{}
-	if got, _ := unbounded.fit(0, 1e300, 1); got != (platform.Size{Width: 1, Height: maxFitDIPs}) {
+	if got, _ := unbounded.fit(contentSize{Height: 1e300}, 1, 0); got != (platform.Size{Width: 1, Height: maxFitDIPs}) {
 		t.Errorf("unbounded fit of an empty, huge page = %v", got)
 	}
 	for _, bad := range [][2]float64{{-1, 10}, {10, -0.5}} {
-		if got, ok := f.fit(bad[0], bad[1], 1); ok {
+		if got, ok := f.fit(contentSize{Width: bad[0], Height: bad[1]}, 1, 0); ok {
 			t.Errorf("fit(%v) = %v, want no size", bad, got)
+		}
+	}
+}
+
+// The room of the scrollbars counts where the content needs them: a
+// vertical scrollbar where the content is taller than the window may be,
+// not while the window is only shorter than the content for a moment.
+func TestFitContentScrollbars(t *testing.T) {
+	f := &fitContent{max: platform.Size{Width: 300, Height: 200}}
+	for _, c := range []struct {
+		what      string
+		c         contentSize
+		maxHeight int
+		want      platform.Size
+	}{
+		{"a vertical scrollbar for a moment", contentSize{Width: 120, Height: 150, Scrollbar: 17}, 0, platform.Size{Width: 120, Height: 150}},
+		{"taller than the maximum", contentSize{Width: 120, Height: 500, Scrollbar: 17}, 0, platform.Size{Width: 137, Height: 200}},
+		{"taller than the work area", contentSize{Width: 120, Height: 150, Scrollbar: 17}, 100, platform.Size{Width: 137, Height: 100}},
+		{"overlay scrollbars", contentSize{Width: 120, Height: 500}, 0, platform.Size{Width: 120, Height: 200}},
+		{"wider than the maximum", contentSize{Width: 300, Height: 60, HorizontalScrollbar: 17}, 0, platform.Size{Width: 300, Height: 77}},
+		{"zoomed", contentSize{Width: 150, Height: 60, HorizontalScrollbar: 8.5}, 0, platform.Size{Width: 300, Height: 137}},
+		{"no room", contentSize{Width: 120, Height: 500, Scrollbar: -1, HorizontalScrollbar: math.NaN()}, 0, platform.Size{Width: 120, Height: 200}},
+	} {
+		zoom := 1.0
+		if c.what == "zoomed" {
+			zoom = 2
+		}
+		if got, ok := f.fit(c.c, zoom, c.maxHeight); !ok || got != c.want {
+			t.Errorf("%s: fit(%+v) = %v, %v; want %v", c.what, c.c, got, ok, c.want)
 		}
 	}
 }
@@ -147,6 +177,15 @@ func TestWindowFitContent(t *testing.T) {
 	size("taller content", 320, 180)
 	page(fw, `{"t":"content-size","w":260,"h":180}`)
 	size("wider content", 260, 180)
+
+	// The user resizes it, and the content grows before the web view takes
+	// the size: the page shows a vertical scrollbar for a moment, which
+	// changes none of the content's width.
+	w.SetContentSize(400, 200)
+	page(fw, `{"t":"content-size","w":260,"h":220,"sw":17}`)
+	size("taller content right after a resize", 400, 220)
+	page(fw, `{"t":"content-size","w":260,"h":220}`)
+	size("the scrollbar gone", 400, 220)
 
 	// Its limits, and the fake display's work area (1440x875).
 	page(fw, `{"t":"content-size","w":900,"h":5000}`)

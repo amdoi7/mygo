@@ -109,4 +109,11 @@ func TestWindowFitContent(t *testing.T) {
 	waitSize(t, "the size given to it", w, w.ContentSize, 400, 300)
 	mustEval(t, w, `d.style.height = "260px"`)
 	waitSize(t, "taller content again", w, w.ContentSize, 400, 260)
+
+	// The content changes right as the window is resized, before its page
+	// takes the size, and shows a vertical scrollbar for a moment: the
+	// width given to it holds.
+	w.SetContentSize(450, 260)
+	mustEval(t, w, `d.style.height = "280px"`)
+	waitSize(t, "taller content right after a resize", w, w.ContentSize, 450, 280)
 }

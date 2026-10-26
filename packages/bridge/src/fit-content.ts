@@ -2,9 +2,9 @@
 // browsers size the popups of their extensions. The root element is laid out
 // at the width of its content (max-content), within the window's limits, so
 // that text wraps at the maximum width, and its height is its content's. A
-// ResizeObserver on it tells Go the size, with the room the scrollbars take,
-// whenever it changes; Go clamps it, turns it into DIPs and resizes the
-// window.
+// ResizeObserver on it tells Go the size, and the room of the scrollbars the
+// page shows, whenever it changes; Go clamps it, turns it into DIPs, decides
+// whether the scrollbars' room counts, and resizes the window.
 
 /** The limits of the window's size, in the CSS pixels of the page; 0 is
  * none. */
@@ -27,15 +27,23 @@ export function fitRule(l: FitLimits, scrollbar: number): string {
   return `:where(:root){${decls.join(";")}}`;
 }
 
+/** The size of the content in CSS pixels: the root element's, and the room
+ * of the vertical scrollbar the page shows (sw) and of a horizontal one (sh),
+ * which counts only when the content is wider than the root. */
+export interface ContentSize {
+  w: number;
+  h: number;
+  sw: number;
+  sh: number;
+}
+
 /** Returns a function that tells Go of a size only when it changed. */
-export function sizeReporter(post: (width: number, height: number) => void) {
-  let lastWidth = -1;
-  let lastHeight = -1;
-  return (width: number, height: number) => {
-    if (width === lastWidth && height === lastHeight) return;
-    lastWidth = width;
-    lastHeight = height;
-    post(width, height);
+export function sizeReporter(post: (size: ContentSize) => void) {
+  let last: ContentSize | null = null;
+  return (size: ContentSize) => {
+    if (last && last.w === size.w && last.h === size.h && last.sw === size.sw && last.sh === size.sh) return;
+    last = size;
+    post(size);
   };
 }
 
@@ -45,7 +53,7 @@ export function sizeReporter(post: (width: number, height: number) => void) {
 export function fitContent(
   limits: FitLimits,
   setRule: (css: string) => void,
-  post: (width: number, height: number) => void,
+  post: (size: ContentSize) => void,
 ) {
   const report = sizeReporter(post);
   let scrollbar = 0; // the vertical scrollbar's width the rule leaves out
@@ -73,8 +81,13 @@ export function fitContent(
         });
       }
     }
+    // A vertical scrollbar shows for a moment as the content grows, before
+    // the window does, so Go decides whether its room counts; the content
+    // overflows the root only when the root is at its maximum width.
     const r = root.getBoundingClientRect();
-    report(r.width + sw, r.height + sh);
+    const body = document.body;
+    const wider = !!body && body.scrollWidth > body.clientWidth;
+    report({ w: r.width, h: r.height, sw, sh: wider ? sh : 0 });
   };
 
   apply();

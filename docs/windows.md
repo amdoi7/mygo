@@ -352,8 +352,8 @@ MyGo's runtime in the page lays its root element (`html`) out at the
 width of its content (`width: max-content`), within the limits, so that
 its text wraps at `MaxWidth`, and watches its size with a
 `ResizeObserver`: its height is its content's, the body's margins
-included, beyond `MaxHeight` the page scrolls, and the room a scrollbar
-takes is part of the size. A page that gives `html` a size of its own,
+included, beyond `MaxHeight` the page scrolls, and the room its
+scrollbar takes then is part of the size. A page that gives `html` a size of its own,
 as `height: 100%`, keeps the flyout at that size: let the root and the
 body take their content's. The size is the page's CSS pixels times its
 zoom, in DIPs, and a size that changes nothing resizes nothing. Native

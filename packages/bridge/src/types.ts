@@ -38,7 +38,7 @@ export type Outgoing =
   | { t: "theme-color"; v: string }
   /** The size of the content of a window that takes it (FitContent), in CSS
    * pixels, scrollbars included. */
-  | { t: "content-size"; w: number; h: number }
+  | { t: "content-size"; w: number; h: number; sw: number; sh: number }
   | { t: "drag" }
   | { t: "dblclick" };
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fitRule, sizeReporter } from "./fit-content";
+import { type ContentSize, fitRule, sizeReporter } from "./fit-content";
 
 const none = { minWidth: 0, minHeight: 0, maxWidth: 0, maxHeight: 0 };
 
@@ -28,19 +28,25 @@ describe("fitRule", () => {
 
 describe("sizeReporter", () => {
   test("tells only of changes", () => {
-    const told: [number, number][] = [];
-    const report = sizeReporter((w, h) => told.push([w, h]));
-    report(120, 80);
-    report(120, 80);
-    report(120.5, 80);
-    report(120.5, 90);
-    report(120.5, 90);
-    report(0, 0);
+    const told: ContentSize[] = [];
+    const report = sizeReporter((s) => told.push(s));
+    const size = (w: number, h: number, sw = 0, sh = 0) => ({ w, h, sw, sh });
+    report(size(120, 80));
+    report(size(120, 80));
+    report(size(120.5, 80));
+    report(size(120.5, 90));
+    report(size(120.5, 90));
+    report(size(120.5, 90, 15));
+    report(size(120.5, 90, 15, 15));
+    report(size(120.5, 90, 15, 15));
+    report(size(0, 0));
     expect(told).toEqual([
-      [120, 80],
-      [120.5, 80],
-      [120.5, 90],
-      [0, 0],
+      size(120, 80),
+      size(120.5, 80),
+      size(120.5, 90),
+      size(120.5, 90, 15),
+      size(120.5, 90, 15, 15),
+      size(0, 0),
     ]);
   });
 });
