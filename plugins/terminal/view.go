@@ -1292,6 +1292,23 @@ func (v *view) report(ev ui.InputEvent) bool {
 	return ev.Kind != ui.InputPointerMove || len(out) > 0
 }
 
+// wheelRows turns dy DIPs of a mouse wheel's notches (scrolling that is
+// not Precise) on goos into the rows the terminal scrolls. A notch scrolls
+// three rows on macOS and Linux, and on Windows as many as its "lines to
+// scroll" setting asks, 3 unless changed, as Windows Terminal does. The
+// DIPs are what the backends send: 40 a line on macOS (internal/darwin),
+// 50 a step on Linux (internal/linux), and 33 a line of the setting on
+// Windows (internal/windows), where a notch sends that many lines.
+func wheelRows(dy float32, goos string) float32 {
+	switch goos {
+	case "windows":
+		return dy / 33
+	case "linux":
+		return dy / 50 * 3
+	}
+	return dy / 40 * 3
+}
+
 // scroll scrolls the scrollback, or reports the wheel to the program.
 func (v *view) scroll(ev ui.InputEvent) bool {
 	t := v.t
@@ -1330,7 +1347,7 @@ func (v *view) scroll(ev ui.InputEvent) bool {
 	ch := float32(v.cellH) / v.scale
 	dy := ev.DY
 	if !ev.Precise {
-		dy = dy / 40 * 3 * ch // a notch scrolls three rows
+		dy = wheelRows(dy, runtime.GOOS) * ch
 	}
 	v.scrolled += dy
 	rows := int(v.scrolled / ch)
