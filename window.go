@@ -1309,7 +1309,8 @@ func (p *Page) UserAgent() string { return pageGet(p.w, platform.Window.UserAgen
 
 // ProcessID returns the ID of the operating system's process that runs
 // the page, 0 when it is unknown: before the web view started one, after
-// the window closed, for a window showing native UI, and on Linux. Which process it is depends on the platform:
+// the window closed, for a window showing native UI, and on Linux. Which
+// process it is depends on the platform:
 //
 //   - macOS: the page's web content process (WebKit's
 //     com.apple.WebKit.WebContent), from WebKit's private
