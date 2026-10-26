@@ -668,13 +668,20 @@ func physicalKey(ev id) platform.Key {
 	return keyAtCodeForLayout(code, kbGetLayoutType(keyboardType))
 }
 
-// stringOf returns the text of an NSString or NSAttributedString.
+// stringOf returns the text of an NSString or NSAttributedString. Other
+// objects with a stringValue (an NSNumber set as an AXValue) give that text,
+// and anything else gives "".
 func stringOf(obj id) string {
 	if obj == 0 {
 		return ""
 	}
 	if respondsTo(obj, "string") {
 		obj = send(obj, "string")
+	} else if !respondsTo(obj, "UTF8String") && respondsTo(obj, "stringValue") {
+		obj = send(obj, "stringValue")
+	}
+	if !respondsTo(obj, "UTF8String") {
+		return ""
 	}
 	return goString(obj)
 }
