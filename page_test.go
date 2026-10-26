@@ -137,3 +137,49 @@ func TestPageThemeColorNeedsSecret(t *testing.T) {
 		t.Errorf("ThemeColor from a message without the secret: %v", c)
 	}
 }
+
+func TestPageAudio(t *testing.T) {
+	w, fw := testWindow(t, WindowOptions{Hidden: true})
+	p := w.Page()
+	var changes []bool // listeners run on the main thread, as SetAudible does
+	off := p.OnAudibleChanged(func(audible bool) { changes = append(changes, audible) })
+	expect := func(what string, audible bool, want ...bool) {
+		t.Helper()
+		if got := p.IsAudible(); got != audible {
+			t.Errorf("%s: IsAudible %v, want %v", what, got, audible)
+		}
+		if !slices.Equal(changes, want) {
+			t.Errorf("%s: changes %v, want %v", what, changes, want)
+		}
+		changes = nil
+	}
+	expect("a new page", false)
+	onMain(func() { fw.SetAudible(true) })
+	expect("playing", true, true)
+	onMain(func() { fw.SetAudible(true) })
+	expect("playing again", true) // told only when it changes
+	onMain(func() { fw.SetAudible(false) })
+	expect("stopped", false, false)
+	off()
+	onMain(func() { fw.SetAudible(true) })
+	expect("after off", true)
+
+	if p.IsAudioMuted() {
+		t.Error("a new page is muted")
+	}
+	p.SetAudioMuted(true)
+	if !p.IsAudioMuted() || !fw.IsAudioMuted() {
+		t.Errorf("SetAudioMuted(true): IsAudioMuted %v, backend's %v", p.IsAudioMuted(), fw.IsAudioMuted())
+	}
+	p.SetAudioMuted(false)
+	if p.IsAudioMuted() || fw.IsAudioMuted() {
+		t.Errorf("SetAudioMuted(false): IsAudioMuted %v, backend's %v", p.IsAudioMuted(), fw.IsAudioMuted())
+	}
+
+	p.SetAudioMuted(true)
+	w.Destroy()
+	if p.IsAudible() || p.IsAudioMuted() {
+		t.Errorf("a closed window's page: IsAudible %v, IsAudioMuted %v", p.IsAudible(), p.IsAudioMuted())
+	}
+	p.SetAudioMuted(false) // does nothing
+}

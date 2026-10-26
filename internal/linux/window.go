@@ -326,6 +326,9 @@ func (w *window) createWebView() {
 	connect(w.web, "load-changed", cbLoadChanged, data)
 	connect(w.web, "load-failed", cbLoadFailed, data)
 	connect(w.web, "notify::title", cbTitle, data)
+	if webkitWebViewIsPlayingAudio != nil {
+		connect(w.web, "notify::is-playing-audio", cbPlayingAudio, data)
+	}
 	connect(w.web, "decide-policy", cbDecidePolicy, data)
 	connect(w.web, "create", cbCreate, data)
 	connect(w.web, "close", cbClose, data)
@@ -1174,6 +1177,24 @@ func (w *window) UserAgent() string {
 // view (webkit_web_view_get_page_id is WebKit's own page identifier).
 func (w *window) ProcessID() int { return 0 }
 
+// IsAudible reports webkit_web_view_is_playing_audio, which
+// notify::is-playing-audio tells the changes of.
+func (w *window) IsAudible() bool {
+	return webkitWebViewIsPlayingAudio != nil && webkitWebViewIsPlayingAudio(w.web)
+}
+
+// SetAudioMuted mutes the web view (webkit_web_view_set_is_muted,
+// WebKitGTK 2.30+); older versions can't.
+func (w *window) SetAudioMuted(v bool) {
+	if webkitWebViewSetIsMuted != nil {
+		webkitWebViewSetIsMuted(w.web, v)
+	}
+}
+
+func (w *window) IsAudioMuted() bool {
+	return webkitWebViewGetIsMuted != nil && webkitWebViewGetIsMuted(w.web)
+}
+
 func (w *window) OpenDevTools() {
 	if w.opts.DevTools {
 		webkitWebInspectorShow(webkitWebViewGetInspector(w.web))
@@ -1352,7 +1373,7 @@ var (
 	cbCreate, cbClose, cbCrashed, cbButtonPress, cbAsyncReady, cbPNGWrite       ptr
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
 	cbMotion, cbControlsAllocated, cbDecorationLayout, cbActivationResize       ptr
-	cbCloseLater                                                                ptr
+	cbCloseLater, cbPlayingAudio                                                ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -1652,6 +1673,11 @@ func initWindowCallbacks() {
 	cbTitle = purego.NewCallback(func(web, pspec, data ptr) {
 		if w := b().window(data); w != nil {
 			w.h.TitleChanged(goStr(webkitWebViewGetTitle(w.web)))
+		}
+	})
+	cbPlayingAudio = purego.NewCallback(func(web, pspec, data ptr) {
+		if w := b().window(data); w != nil {
+			w.h.AudibleChanged(webkitWebViewIsPlayingAudio(w.web))
 		}
 	})
 	cbDecidePolicy = purego.NewCallback(func(web, decision ptr, kind int32, data ptr) bool {

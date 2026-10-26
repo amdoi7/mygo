@@ -350,6 +350,12 @@ type Window struct {
 	hasThemeColor       bool
 	themeColorPending   bool
 	onThemeColorChanged listeners[func(color.NRGBA, bool)]
+
+	// audible is what the backend last told of the page's sound
+	// (AudibleChanged), so that listeners hear only changes. Main thread
+	// only.
+	audible          bool
+	onAudibleChanged listeners[func(bool)]
 }
 
 // LoadError describes a failed page load.
@@ -1861,6 +1867,14 @@ func (h *windowHandler) ClosedByPage() {
 }
 
 func (h *windowHandler) RenderProcessGone(reason string) { fire1(&h.w.onRenderGone, reason) }
+
+func (h *windowHandler) AudibleChanged(audible bool) {
+	if audible == h.w.audible {
+		return
+	}
+	h.w.audible = audible
+	fire1(&h.w.onAudibleChanged, audible)
+}
 
 // filesDropped tells OnFileDrop listeners, and the app's own pages, about
 // dropped files.

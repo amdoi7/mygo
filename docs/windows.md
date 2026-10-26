@@ -514,6 +514,7 @@ Page events, on `win.Page()`:
 | `OnPageTitleUpdated(func(e *mygo.TitleEvent))` | the page's `<title>` changed; preventing the event keeps the window title as it is |
 | `OnThemeColorChanged(func(c color.NRGBA, ok bool))` | the page's [theme color](#the-theme-color) changed; `ok` is false when it has none any more |
 | `OnRenderProcessGone(func(reason string))` | the web content process crashed or was killed; `Reload` recovers |
+| `OnAudibleChanged(func(audible bool))` | the page started or stopped [making sound](#sound) |
 
 Keep a window on the app's own pages and open other links in the browser:
 
@@ -571,6 +572,44 @@ pages of the same color fires nothing.
 MyGo's runtime in the page watches the metas, the same way on every
 platform, in pages of any origin, trusted or not. A page the runtime does
 not run in, as an image or a PDF the web view shows, has no theme color.
+
+### Sound
+
+`IsAudible` tells whether a page is making sound, from any of its frames,
+a video of another site included, and `OnAudibleChanged` when that
+changes, for a speaker on a tab or a window, or a media app's state.
+`SetAudioMuted` mutes the whole page, as a browser mutes a tab, without the
+page seeing its elements muted; it lasts as the page navigates:
+
+```go
+page := win.Page()
+page.OnAudibleChanged(func(audible bool) {
+	log.Println("playing:", audible) // show a speaker on the window's tab
+})
+
+// A menu item that mutes or unmutes the window it was chosen for.
+mute := &mygo.MenuItem{Label: "Mute or Unmute Window", Click: func(_ *mygo.MenuItem, win *mygo.Window) {
+	if win == nil || win.Page() == nil {
+		return // no window, or one showing native UI
+	}
+	win.Page().SetAudioMuted(!win.Page().IsAudioMuted())
+}}
+```
+
+A page muted right after `NewWindow` starts muted, even where its web view
+is not made yet. A muted page can still be audible, as a tab shows a
+crossed-out speaker; the engine decides when a paused or silent source stops
+counting, which can take a moment after the sound stops.
+
+| Platform | Making sound | Muting |
+|---|---|---|
+| macOS | WebKit's private `_isPlayingAudio`, observed; false if WebKit stops answering it | WebKit's private `_setPageMuted:`, as Safari mutes a tab; does nothing if WebKit stops answering it |
+| Windows | `IsDocumentPlayingAudio` of WebView2 (`ICoreWebView2_8`); false on runtimes older than it | `IsMuted` of the same; does nothing on older runtimes |
+| Linux | `webkit_web_view_is_playing_audio` | `webkit_web_view_set_is_muted`, WebKitGTK 2.30 or later; does nothing on older versions |
+
+Where a platform can't mute, `IsAudioMuted` is false. Both are false for a
+window showing native UI and after the window closed. A [web view's](ui/web-view.md)
+page has them too.
 
 ### Find in page
 

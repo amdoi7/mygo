@@ -247,6 +247,15 @@ func (w *window) setUp(controller uintptr) {
 		withHandler(w.downloadStarting, func(h uintptr) uintptr { return comCall(wv4, wv4AddDownloadStarting, h, uintptr(unsafe.Pointer(&tok))) })
 		release(wv4)
 	}
+	if wv8 := queryInterface(w.webview, &iidICoreWebView2_8); wv8 != 0 {
+		withHandler(func(_, _ uintptr) { w.h.AudibleChanged(w.IsAudible()) }, func(h uintptr) uintptr {
+			return comCall(wv8, wv8AddIsDocumentPlayingAudioChanged, h, uintptr(unsafe.Pointer(&tok)))
+		})
+		if w.muted { // muted before the web view was made
+			comCall(wv8, wv8PutIsMuted, 1)
+		}
+		release(wv8)
+	}
 	add(wvAddWindowCloseRequested, func(_, _ uintptr) { w.h.ClosedByPage() })
 	add(wvAddProcessFailed, func(_, args uintptr) {
 		var kind int32
@@ -925,6 +934,51 @@ func (w *window) ProcessID() int {
 		return 0
 	}
 	return int(pid)
+}
+
+// webView8 returns the web view's ICoreWebView2_8, which the caller
+// releases, or 0 before the web view is made and on runtimes older than
+// it.
+func (w *window) webView8() uintptr {
+	return queryInterface(w.webview, &iidICoreWebView2_8)
+}
+
+// getBool8 returns a BOOL property of ICoreWebView2_8, false without it.
+func (w *window) getBool8(index int) bool {
+	wv8 := w.webView8()
+	if wv8 == 0 {
+		return false
+	}
+	defer release(wv8)
+	var v int32
+	if failed(comCall(wv8, index, uintptr(unsafe.Pointer(&v)))) {
+		return false
+	}
+	return v != 0
+}
+
+// IsAudible returns ICoreWebView2_8's IsDocumentPlayingAudio, which
+// IsDocumentPlayingAudioChanged (setUp) tells the changes of.
+func (w *window) IsAudible() bool { return w.getBool8(wv8GetIsDocumentPlayingAudio) }
+
+// SetAudioMuted puts ICoreWebView2_8's IsMuted, or keeps it for setUp
+// until the web view is made. A runtime older than ICoreWebView2_8 can't
+// mute.
+func (w *window) SetAudioMuted(v bool) {
+	w.muted = v
+	if wv8 := w.webView8(); wv8 != 0 {
+		comCall(wv8, wv8PutIsMuted, boolArg(v))
+		release(wv8)
+	}
+}
+
+// IsAudioMuted returns ICoreWebView2_8's IsMuted, or what SetAudioMuted
+// keeps until the web view is made, unless it never will be.
+func (w *window) IsAudioMuted() bool {
+	if w.webview == 0 {
+		return w.muted && w.webViewErr == nil
+	}
+	return w.getBool8(wv8GetIsMuted)
 }
 
 func (w *window) OpenDevTools() {

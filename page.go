@@ -100,6 +100,55 @@ func (w *Window) themeColorSettled() {
 	}
 }
 
+// IsAudible reports whether the page is making sound: a video or audio
+// element playing, Web Audio, from any of its frames, those of other
+// sites included. Like a browser tab's speaker icon, it can stay true
+// while the page is muted (SetAudioMuted); the platform decides when a
+// paused or silent source stops counting. It is false for a window
+// showing native UI and after the window closed, and where the platform
+// can't tell:
+//
+//   - macOS: WebKit's private -[WKWebView _isPlayingAudio], looked up with
+//     respondsToSelector:; false when WebKit doesn't answer it.
+//   - Linux: webkit_web_view_is_playing_audio.
+//   - Windows: ICoreWebView2_8's IsDocumentPlayingAudio; false on WebView2
+//     runtimes older than it.
+func (p *Page) IsAudible() bool { return pageGet(p.w, platform.Window.IsAudible) }
+
+// OnAudibleChanged is called when the page starts or stops making sound
+// (IsAudible), on the main thread, as other events are: to show a speaker
+// on a tab or offer to mute a window. It is never called where IsAudible
+// is always false.
+//
+//	page.OnAudibleChanged(func(audible bool) {
+//		tab.SetSpeakerVisible(audible)
+//	})
+func (p *Page) OnAudibleChanged(fn func(audible bool)) (off func()) {
+	return p.w.onAudibleChanged.add(fn, false)
+}
+
+// SetAudioMuted mutes all the page's sound, or lets it play again, as a
+// browser mutes a tab: the page's own media elements, Web Audio and its
+// frames of other sites, without the page seeing its elements muted. It
+// lasts as the page navigates, until it is set again, and a page muted
+// before its web view is ready starts muted. It does nothing for a window
+// showing native UI and where the platform can't mute:
+//
+//   - macOS: WebKit's private -[WKWebView _setPageMuted:], as Safari mutes a
+//     tab, looked up with respondsToSelector:; nothing when WebKit doesn't
+//     answer it.
+//   - Linux: webkit_web_view_set_is_muted, WebKitGTK 2.30 or later.
+//   - Windows: ICoreWebView2_8's IsMuted; nothing on WebView2 runtimes
+//     older than it.
+func (p *Page) SetAudioMuted(muted bool) {
+	p.w.page(func(n platform.Window) { n.SetAudioMuted(muted) })
+}
+
+// IsAudioMuted reports whether the page is muted (SetAudioMuted): false
+// where the platform can't mute, for a window showing native UI and after
+// the window closed.
+func (p *Page) IsAudioMuted() bool { return pageGet(p.w, platform.Window.IsAudioMuted) }
+
 func nrgba(c platform.Color) color.NRGBA { return color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A} }
 
 // PageOptions configure the web page of a window.
