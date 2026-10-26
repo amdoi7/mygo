@@ -2412,7 +2412,11 @@ func TestUserInitiated(t *testing.T) {
 		}
 	}
 	w.Page().LoadHTML(userInitiatedPage, "https://example.com/")
-	opened("https://example.com/timer", false)
+	if runtime.GOOS != "linux" {
+		// WebKitGTK blocks a window.open() without a user's gesture
+		// itself, before asking the app.
+		opened("https://example.com/timer", false)
+	}
 	navigated("https://example.com/moved", false)
 
 	// A user clicks the window of the app in front (see TestClick).
