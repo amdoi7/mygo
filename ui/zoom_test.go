@@ -161,12 +161,13 @@ func TestZoomDrawsAtTheScreensResolutionTimesTheZoom(t *testing.T) {
 	once := coreNewTester(zoomText, 160, 30)
 	once.SetZoom(1)
 	plain := coreNewTester(zoomText, 160, 30)
-	if !sameImage(once.Image(), plain.Image()) {
+	if !identicalImage(once.Image(), plain.Image()) {
 		t.Error("zoom 1 draws otherwise than no zoom")
 	}
 }
 
-func sameImage(a, b *image.RGBA) bool {
+// identicalImage reports whether a and b have the same size and pixels.
+func identicalImage(a, b *image.RGBA) bool {
 	if a.Bounds() != b.Bounds() {
 		return false
 	}
