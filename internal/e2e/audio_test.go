@@ -36,14 +36,13 @@ func TestPageAudioMuted(t *testing.T) {
 	if !p.IsAudioMuted() {
 		t.Error("IsAudioMuted = false after a navigation")
 	}
+	// WebView2 may take a moment to settle a change that follows another
+	// at once (CI's Windows read false right after muting again), so
+	// these wait for it, and fail only if it never comes.
 	p.SetAudioMuted(false)
-	if p.IsAudioMuted() {
-		t.Error("IsAudioMuted = true after SetAudioMuted(false)")
-	}
+	wait.Until(t, "IsAudioMuted false after SetAudioMuted(false)", func() bool { return !p.IsAudioMuted() })
 	p.SetAudioMuted(true)
-	if !p.IsAudioMuted() {
-		t.Error("IsAudioMuted = false after SetAudioMuted(true) again")
-	}
+	wait.Until(t, "IsAudioMuted true after SetAudioMuted(true) again", p.IsAudioMuted)
 }
 
 // audiblePage loops a quiet 440 Hz tone in an <audio> element, from a WAV
