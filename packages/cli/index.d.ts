@@ -49,6 +49,17 @@ export interface Config {
   /** The name users see: the app, its executable, menus and installers (default: the directory's name). */
   name?: string;
   /**
+   * The name of the app's files where a name must be plain ASCII: the disk
+   * images of macOS and the installers of Windows, the Linux executable,
+   * desktop entry, icon and Debian package, the update archives of every
+   * platform, and the variables of the install scripts. Lower-case
+   * letters and digits with single hyphens between them (default: the name
+   * in lower case, with hyphens between its words and Chinese, Japanese and
+   * Korean in Latin letters, as `my-app` of "My App" and `yun-yin-le` of
+   * "云音乐").
+   */
+  slug?: string;
+  /**
    * A reverse DNS name unique to the app, such as `com.example.myapp`, on
    * which systems key preferences, permissions and registrations (default:
    * `com.mygo.` and the name's letters and digits).
@@ -58,6 +69,11 @@ export interface Config {
   version?: string;
   /** The copyright notice of the app. */
   copyright?: string;
+  /**
+   * Who makes the app, which Windows lists with the installed app (default:
+   * the copyright notice without its "©" and years).
+   */
+  publisher?: string;
   /** A square PNG, ideally 1024×1024 (default: `resources/icon.png` when it exists). */
   icon?: string;
   /** The Go package of the app, relative to the project (default: `.`). */
@@ -226,6 +242,13 @@ export interface NotarizeConfig {
 
 /** Windows packaging. */
 export interface WindowsConfig {
+  /**
+   * The name Windows shows the app by: its shortcuts, its entry in
+   * Settings > Apps, the installer's title and the executable's product
+   * name (default: the name). The executable and the install folder keep
+   * the name's, e.g. `天气助手` for an app named `weather`.
+   */
+  displayName?: string;
   /** A code signing certificate (.pfx); its password comes from `MYGO_WINDOWS_CERTIFICATE_PASSWORD`. */
   certificate?: string;
   /** Instead of `certificate`, a command that signs a file, with `%1` for its path. */

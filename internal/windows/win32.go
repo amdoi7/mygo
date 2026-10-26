@@ -217,6 +217,7 @@ var (
 	procDwmSetWindowAttribute        = dwmapi.NewProc("DwmSetWindowAttribute")
 	procDwmGetWindowAttribute        = dwmapi.NewProc("DwmGetWindowAttribute")
 	procDwmExtendFrameIntoClientArea = dwmapi.NewProc("DwmExtendFrameIntoClientArea")
+	procDwmFlush                     = dwmapi.NewProc("DwmFlush")
 
 	// shcore
 	procGetDpiForMonitor = shcore.NewProc("GetDpiForMonitor")

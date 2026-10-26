@@ -191,6 +191,9 @@ type AppController interface {
 	Hide()
 	Unhide()
 	IsHidden() bool
+	// IsActive reports whether the app is the active one: in front on
+	// macOS, with a window that has the keyboard elsewhere.
+	IsActive() bool
 	SetBadge(label string)
 	Badge() string
 	// Bounce requests user attention and returns an id for CancelBounce.
@@ -473,6 +476,10 @@ type Window interface {
 	// SetActiveAppearance keeps the window drawn as active, as the key
 	// window of the app in front, while it is not (macOS).
 	SetActiveAppearance(v bool)
+	// SetWindowButtonsTheme draws the controls of a hidden title bar for a
+	// "light" or "dark" background whatever the app's appearance, or
+	// follows it again with "system" (Windows).
+	SetWindowButtonsTheme(source string)
 	// SetProgressBar shows progress on the taskbar button, Dock icon or
 	// launcher entry: state is "" (none), "normal", "indeterminate",
 	// "paused" or "error", value between 0 and 1.
@@ -545,6 +552,21 @@ type Page interface {
 	Zoom() float64
 	SetUserAgent(ua string)
 	UserAgent() string
+	// ProcessID returns the ID of the operating system's process that
+	// the backend reports for the page (see Page.ProcessID in package
+	// mygo for which one), 0 when it reports none.
+	ProcessID() int
+	// IsAudible reports whether the page plays sound, from any of its
+	// frames, as WindowHandler.AudibleChanged reports its changes; false
+	// where the backend cannot tell.
+	IsAudible() bool
+	// SetAudioMuted mutes the page's sound, or lets it play again. A
+	// backend whose web view does not exist yet mutes it once it does;
+	// one that cannot mute does nothing.
+	SetAudioMuted(muted bool)
+	// IsAudioMuted reports what SetAudioMuted set, false where the
+	// backend cannot mute.
+	IsAudioMuted() bool
 	OpenDevTools()
 	CloseDevTools()
 	IsDevToolsOpened() bool
@@ -644,6 +666,8 @@ type WindowHandler interface {
 	// ClosedByPage is called when the page calls window.close().
 	ClosedByPage()
 	RenderProcessGone(reason string)
+	// AudibleChanged is called when Page.IsAudible changes.
+	AudibleChanged(audible bool)
 	SchemeRequest(req *SchemeRequest)
 	// DownloadStarted returns where to save a download, "" to cancel it;
 	// DownloadFinished reports how it ended.
@@ -686,6 +710,10 @@ type NewWindowRequest struct {
 	Disposition string
 	// Width/Height/X/Y come from window.open() features; zero when absent.
 	X, Y, Width, Height int
+	// UserInitiated is true when a user's gesture, as a click or a key
+	// press, opened the window: a click on the link, or its handler
+	// calling window.open().
+	UserInitiated bool
 	// Native must be copied into WindowOptions.Native of the window that is
 	// returned.
 	Native uintptr
@@ -759,7 +787,9 @@ type MenuItem struct {
 	Visible     bool
 	Checked     bool
 	ToolTip     string
-	Submenu     *Menu
+	// Icon is the image beside the label, nil for none.
+	Icon    *MenuIcon
+	Submenu *Menu
 }
 
 // FileFilter restricts the files shown in file dialogs.

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/egoist/mygo/i18n"
 )
@@ -24,10 +25,22 @@ const (
 type Config struct {
 	// Name is the display name of the app (default: directory name).
 	Name string `json:"name"`
+	// Slug names the app's files where a name must be plain ASCII: the disk
+	// images of macOS, the installers of Windows, the Linux executable, its
+	// desktop entry, icon and Debian package, the update archives and
+	// deltas of every platform, the variables of the install scripts, and
+	// the MIME types the app defines. Lower-case
+	// letters, digits and hyphens (default: the name as slugify makes it,
+	// as my-app of "My App" and yun-yin-le of "云音乐").
+	Slug string `json:"slug"`
 	// Identifier is the reverse-DNS bundle identifier.
 	Identifier string `json:"identifier"`
 	Version    string `json:"version"`
 	Copyright  string `json:"copyright"`
+	// Publisher is who makes the app, which Windows lists with the
+	// installed app (default: the copyright notice without its "©" and
+	// years, as "Example Inc." of "Copyright © 2026 Example Inc.").
+	Publisher string `json:"publisher"`
 	// Icon is a square PNG, ideally 1024x1024 (default:
 	// resources/icon.png when it exists). Beside it, the same name with
 	// -dev, as icon-dev.png, is the development app's, when it exists.
@@ -95,6 +108,21 @@ type Config struct {
 	langsRead bool
 }
 
+// copyrightNoise is what publisher strips off a copyright notice: the
+// words and signs of copyright, years and ranges of years, and "All rights
+// reserved".
+var copyrightNoise = regexp.MustCompile(`(?i)\bcopyright\b|©|\(c\)|\b\d{4}\b(\s*[-–]\s*(\d{4}\b|present\b))?|\ball rights reserved\b\.?`)
+
+// publisher returns Publisher, or else the copyright notice without its
+// "©" and years, or "".
+func (c *Config) publisher() string {
+	if p := strings.TrimSpace(c.Publisher); p != "" {
+		return p
+	}
+	p := copyrightNoise.ReplaceAllString(c.Copyright, " ")
+	return strings.Trim(strings.Join(strings.Fields(p), " "), " ,;:-–")
+}
+
 // configName names the configuration file in messages.
 func (c *Config) configName() string {
 	if c.file == "" {
@@ -126,7 +154,7 @@ func (c *Config) mimeType(fa FileAssociation) (string, bool) {
 		_, sub, _ := strings.Cut(fa.MimeType, "/")
 		return fa.MimeType, strings.HasPrefix(sub, "x-")
 	}
-	return "application/x-" + slugify(c.executableName()) + "-" + strings.ToLower(fa.Ext[0]), true
+	return "application/x-" + c.slug() + "-" + strings.ToLower(fa.Ext[0]), true
 }
 
 // I18n configures the catalogs of the app's messages: a JSON file per
@@ -263,6 +291,12 @@ func (c *Config) validate() error {
 	if c.Windows.Certificate != "" && c.Windows.SignCommand != "" {
 		return errors.New("windows.certificate and windows.signCommand exclude each other")
 	}
+	if strings.ContainsFunc(c.Windows.DisplayName, unicode.IsControl) {
+		return fmt.Errorf("windows.displayName %q cannot hold control characters, such as line breaks", c.Windows.DisplayName)
+	}
+	if c.Slug != "" && !slugRe.MatchString(c.Slug) {
+		return fmt.Errorf("slug %q is not a slug (lower-case letters and digits, with single hyphens between them)", c.Slug)
+	}
 	if cmd := c.Linux.Command; cmd != "" && !commandRe.MatchString(cmd) {
 		return fmt.Errorf("linux.command %q is not a command name (a letter or digit, then letters, digits, ., _, + or -)", cmd)
 	}
@@ -299,6 +333,7 @@ func (c *Config) validate() error {
 
 var (
 	nonIdent = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+	slugRe   = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)
 	extRe    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_+-]*$`)
 )
@@ -429,6 +464,32 @@ func (c *Config) executableName() string {
 		return name
 	}
 	return "app"
+}
+
+// windowsName returns the name Windows shows the app by: windows.displayName,
+// or else Name.
+func (c *Config) windowsName() string {
+	if n := strings.TrimSpace(c.Windows.DisplayName); n != "" {
+		return n
+	}
+	return c.Name
+}
+
+// shortcutName is the file name of the app's shortcuts on Windows, without
+// .lnk: windowsName made a file name, or the executable's name without one.
+func (c *Config) shortcutName() string {
+	if name := fsName(c.windowsName()); name != "" {
+		return name
+	}
+	return c.executableName()
+}
+
+// slug returns Slug, or else Name as slugify makes it.
+func (c *Config) slug() string {
+	if c.Slug != "" {
+		return c.Slug
+	}
+	return slugify(c.executableName())
 }
 
 // fsName makes s usable as a file name on every platform.

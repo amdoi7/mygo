@@ -16,31 +16,35 @@ import (
 // TestActivateMenuItem activates an item of a window's menu bar, found by
 // the labels along its path.
 func TestActivateMenuItem(handle uintptr, path ...string) error {
-	var w *window
-	for _, x := range theBackend.windows {
-		if x.win == handle {
-			w = x
-		}
+	item, err := menuItemAt(handle, path)
+	if err == nil {
+		gtkMenuItemActivate(item)
 	}
+	return err
+}
+
+// menuItemAt finds an item of a window's menu bar by the labels along its
+// path.
+func menuItemAt(handle uintptr, path []string) (ptr, error) {
+	w := windowByHandle(handle)
 	if w == nil || w.menubar == 0 {
-		return fmt.Errorf("mygo: window has no menu bar")
+		return 0, fmt.Errorf("mygo: window has no menu bar")
 	}
 	shell := w.menubar
 	for i, label := range path {
 		item := findMenuItem(shell, label)
 		if item == 0 {
-			return fmt.Errorf("mygo: no menu item %q", label)
+			return 0, fmt.Errorf("mygo: no menu item %q", label)
 		}
 		if i == len(path)-1 {
-			gtkMenuItemActivate(item)
-			return nil
+			return item, nil
 		}
 		shell = gtkMenuItemGetSubmenu(item)
 		if shell == 0 {
-			return fmt.Errorf("mygo: menu %q has no submenu", label)
+			return 0, fmt.Errorf("mygo: menu %q has no submenu", label)
 		}
 	}
-	return nil
+	return 0, fmt.Errorf("mygo: no menu item")
 }
 
 func findMenuItem(shell ptr, label string) ptr {
@@ -48,11 +52,67 @@ func findMenuItem(shell ptr, label string) ptr {
 	defer gListFree(list)
 	for node := list; node != 0; node = field[ptr](node, 8) {
 		item := field[ptr](node, 0)
-		if goStr(gtkMenuItemGetLabel(item)) == label {
+		if menuItemLabel(item) == label {
 			return item
 		}
 	}
 	return 0
+}
+
+// menuItemLabel returns the label of a menu item, which one with an icon
+// holds in a box with the image.
+func menuItemLabel(item ptr) string {
+	loadMenuTests()
+	for _, list := range itemsByID {
+		for _, n := range list {
+			if n.item == item && n.label != 0 {
+				return goStr(gtkLabelGetLabel(n.label))
+			}
+		}
+	}
+	return goStr(gtkMenuItemGetLabel(item))
+}
+
+var (
+	menuTestOnce              sync.Once
+	gtkLabelGetLabel          func(label ptr) ptr
+	gtkCheckMenuItemGetActive func(item ptr) bool
+)
+
+func loadMenuTests() {
+	menuTestOnce.Do(func() {
+		mustBind(libGTK, &gtkLabelGetLabel, "gtk_label_get_label")
+		mustBind(libGTK, &gtkCheckMenuItemGetActive, "gtk_check_menu_item_get_active")
+	})
+}
+
+// TestMenuItemIcon reports the size, in points, of the icon an item of a
+// window's menu bar shows, 0 by 0 for none, and whether the item is
+// checked.
+func TestMenuItemIcon(handle uintptr, path ...string) (width, height int, checked bool, err error) {
+	loadMenuTests()
+	item, err := menuItemAt(handle, path)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	for _, list := range itemsByID {
+		for _, n := range list {
+			if n.item != item {
+				continue
+			}
+			if n.check {
+				checked = gtkCheckMenuItemGetActive(item)
+			}
+			if n.image != 0 && gtkWidgetGetVisible(n.image) {
+				var minimum, w, h int32
+				gtkWidgetGetPreferredWidth(n.image, &minimum, &w)
+				gtkWidgetGetPreferredHeight(n.image, &minimum, &h)
+				width, height = int(w), int(h)
+			}
+			return width, height, checked, nil
+		}
+	}
+	return 0, 0, false, fmt.Errorf("mygo: the item is not MyGo's")
 }
 
 func windowByHandle(handle uintptr) *window {
@@ -362,6 +422,23 @@ func clickSurface(handle uintptr, x, y float64, button uint32) bool {
 		return false
 	}
 	return pressButton(button, true) && pressButton(button, false)
+}
+
+// TestClickPage clicks (x, y), in DIPs, in the page of a window's web
+// view, through XTEST, as a user clicks it.
+func TestClickPage(handle uintptr, x, y float64) bool {
+	w := windowByHandle(handle)
+	if w == nil || w.surface != nil || w.web == 0 {
+		return false
+	}
+	loadFlyouts() // contentOrigin's
+	loadSurface() // gtk_widget_get_scale_factor
+	ox, oy := w.contentOrigin()
+	scale := float64(max(gtkWidgetGetScaleFactor(w.web), 1))
+	if !TestMovePointer(int((float64(ox)+x)*scale), int((float64(oy)+y)*scale)) {
+		return false
+	}
+	return pressButton(1, true) && pressButton(1, false)
 }
 
 // TestSideButton clicks a mouse's back or forward button (buttons 8 and

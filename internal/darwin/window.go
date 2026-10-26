@@ -105,6 +105,9 @@ type window struct {
 	// accessParent is the element of the content showing a web view,
 	// which assistive technology finds its page in.
 	accessParent id
+	// observesAudio tells that the window observes its web view's
+	// _isPlayingAudio, which WebKit answers (IsAudible).
+	observesAudio bool
 }
 
 func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
@@ -482,6 +485,21 @@ func (w *window) createWebView(content NSRect) {
 		msgSetFloat(w.web, sel("setPageZoom:"), o.Zoom)
 	}
 	send(w.web, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString("title")), 1, 0)
+	if respondsTo(w.web, "_isPlayingAudio") {
+		// WebKit tells its changes with willChangeValueForKey: and
+		// didChangeValueForKey:, as Safari's tabs' speaker icons hear.
+		w.observesAudio = true
+		send(w.web, "addObserver:forKeyPath:options:context:", uintptr(w.delegate), uintptr(nsString("_isPlayingAudio")), 0, 0)
+	}
+}
+
+// stopObserving removes the key-value observers createWebView added.
+func (w *window) stopObserving() {
+	send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("title")))
+	if w.observesAudio {
+		w.observesAudio = false
+		send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("_isPlayingAudio")))
+	}
 }
 
 func nsColor(c platform.Color) id {
@@ -497,7 +515,7 @@ func (w *window) cleanup() {
 	w.closeWebViews()
 	w.closed = true
 	b := w.b
-	send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("title")))
+	w.stopObserving()
 	if w.trafficLights != nil {
 		send(w.win, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("effectiveAppearance")))
 	}
@@ -1053,6 +1071,11 @@ func (w *window) SetActiveAppearance(v bool) {
 	}
 }
 
+// SetWindowButtonsTheme does nothing: the traffic lights look the same in
+// both appearances, and an appearance of the window's own would change its
+// page's too.
+func (w *window) SetWindowButtonsTheme(string) {}
+
 // removeEffect takes the material out of the window.
 func (w *window) removeEffect() {
 	if w.effect != 0 {
@@ -1312,6 +1335,53 @@ func (w *window) UserAgent() string {
 		}
 	})
 	return s
+}
+
+// ProcessID returns the web content process of the page from WebKit's
+// private -[WKWebView _webProcessIdentifier] (a pid_t), 0 when WebKit
+// doesn't answer it or runs no process for the page yet.
+func (w *window) ProcessID() int {
+	if !respondsTo(w.web, "_webProcessIdentifier") {
+		return 0
+	}
+	return int(int32(send(w.web, "_webProcessIdentifier")))
+}
+
+// IsAudible reports WebKit's private -[WKWebView _isPlayingAudio]
+// (macOS 10.13.4+), false when WebKit doesn't answer it.
+func (w *window) IsAudible() bool {
+	return respondsTo(w.web, "_isPlayingAudio") && sendBool(w.web, "_isPlayingAudio")
+}
+
+// wkMediaAudioMuted is _WKMediaAudioMuted, the bit of _WKMediaMutedState
+// (WKWebViewPrivate.h) that mutes the page's sound; the others mute its
+// capture devices, and are kept as they are.
+const wkMediaAudioMuted = 1 << 0
+
+// canMute reports whether WebKit answers the private selectors that mute
+// a page, as Safari mutes a tab (macOS 10.13+).
+func (w *window) canMute() bool {
+	return respondsTo(w.web, "_mediaMutedState") && respondsTo(w.web, "_setPageMuted:")
+}
+
+// SetAudioMuted sets the _WKMediaAudioMuted bit of the page's
+// _mediaMutedState with _setPageMuted:, or does nothing when WebKit
+// doesn't answer them.
+func (w *window) SetAudioMuted(v bool) {
+	if !w.canMute() {
+		return
+	}
+	state := uintptr(send(w.web, "_mediaMutedState"))
+	if v {
+		state |= wkMediaAudioMuted
+	} else {
+		state &^= wkMediaAudioMuted
+	}
+	send(w.web, "_setPageMuted:", state)
+}
+
+func (w *window) IsAudioMuted() bool {
+	return w.canMute() && uintptr(send(w.web, "_mediaMutedState"))&wkMediaAudioMuted != 0
 }
 
 func (w *window) inspector() id {
@@ -1743,6 +1813,8 @@ func registerWindowClasses() {
 				switch goString(keyPath) {
 				case "title":
 					w.h.TitleChanged(goString(send(w.web, "title")))
+				case "_isPlayingAudio":
+					w.h.AudibleChanged(w.IsAudible())
 				case "effectiveAppearance":
 					// AppKit lays the title bar out again after telling us.
 					b().post(w.layoutTrafficLights)
@@ -1764,7 +1836,7 @@ func registerWindowClasses() {
 					nav := platform.Navigation{
 						URL:           goString(send(send(send(action, "request"), "URL"), "absoluteString")),
 						IsMainFrame:   frame != 0 && sendBool(frame, "isMainFrame"),
-						UserInitiated: navType == 0 || navType == 1,
+						UserInitiated: userInitiated(action, navType),
 						Unasked:       navType == 2 || navType == 3,
 						Reload:        navType == 3,
 					}
@@ -1891,7 +1963,10 @@ func registerWindowClasses() {
 					Y:      num("y"),
 					Width:  num("width"),
 					Height: num("height"),
-					Native: uintptr(cfg),
+					// The action of the link, or of window.open(), whose
+					// WKNavigationType is "other".
+					UserInitiated: userInitiated(action, sendInt(action, "navigationType")),
+					Native:        uintptr(cfg),
 				}
 				child, ok := w.h.NewWindow(req).(*window)
 				if !ok || child == nil {
@@ -1921,6 +1996,18 @@ func registerWindowClasses() {
 				jsFileInput(w, params, handler)
 			}),
 		}...))
+}
+
+// userInitiated reports whether a user's gesture started a navigation
+// action. WebKit's private -[WKNavigationAction _isUserInitiated] knows,
+// a click whose handler navigates or calls window.open() included;
+// without it, the action's WKNavigationType says, a link or a form,
+// which misses those.
+func userInitiated(action id, navType int) bool {
+	if respondsTo(action, "_isUserInitiated") {
+		return sendBool(action, "_isUserInitiated")
+	}
+	return navType == 0 || navType == 1 // WKNavigationTypeLinkActivated, FormSubmitted
 }
 
 func (w *window) loadFailed(err id) {
