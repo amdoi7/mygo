@@ -196,3 +196,84 @@ func TestChildPanelAboveRaisedParent(t *testing.T) {
 	parent.Show()
 	eventually(t, "the panel back above its parent", func() bool { return panel.IsVisible() && inFrontOf(panel, parent) })
 }
+
+// onActiveSpace reports whether w is on the Space that shows.
+func onActiveSpace(w *mygo.Window) (on bool) {
+	mygo.RunOnMain(func() { on = darwin.TestOnActiveSpace(w.NativeHandle()) })
+	return on
+}
+
+// windowLevel returns w's window level.
+func windowLevel(w *mygo.Window) (l int) {
+	mygo.RunOnMain(func() { l = darwin.TestWindowLevel(w.NativeHandle()) })
+	return l
+}
+
+// TestChildWindowAboveOnTopParent shows a child window of a window that is
+// always on top: the child takes its level, staying above it and above the
+// windows its parent is above, and follows it as its parent stops being
+// on top and is again, while it does not report being on top itself.
+func TestChildWindowAboveOnTopParent(t *testing.T) {
+	o := childWindowsOrigin(t)
+	other := newWindow(t, mygo.WindowOptions{Title: "Window under the on-top parent", Width: 500, Height: 400, X: o.X, Y: o.Y})
+	parent := newWindow(t, mygo.WindowOptions{Title: "On-top parent", AlwaysOnTop: true, Width: 400, Height: 300, X: o.X + 40, Y: o.Y + 40})
+	child := newWindow(t, mygo.WindowOptions{Title: "Child of the on-top parent", Parent: parent, Width: 240, Height: 180, X: o.X + 80, Y: o.Y + 80})
+	waitOnScreen(other)
+	waitOnScreen(child)
+	eventually(t, "the child above its on-top parent", func() bool { return inFrontOf(child, parent) })
+	if l, pl := windowLevel(child), windowLevel(parent); l < pl {
+		t.Errorf("the child's level %d is below its parent's %d", l, pl)
+	}
+	if child.IsAlwaysOnTop() {
+		t.Error("the child reports being on top, as its parent is")
+	}
+
+	other.Focus()
+	eventually(t, "the other window focused", other.IsFocused)
+	eventually(t, "the on-top parent and its child above the focused window", func() bool {
+		return inFrontOf(child, parent) && inFrontOf(parent, other)
+	})
+
+	parent.Focus()
+	eventually(t, "the child above its raised on-top parent", func() bool { return inFrontOf(child, parent) })
+
+	parent.SetAlwaysOnTop(false)
+	eventually(t, "the parent no longer on top", func() bool { return !parent.IsAlwaysOnTop() })
+	if l, pl := windowLevel(child), windowLevel(parent); l != pl {
+		t.Errorf("the child's level %d once its parent is no longer on top, want its parent's %d", l, pl)
+	}
+	other.Focus()
+	eventually(t, "the focused window above the parent no longer on top, and its child", func() bool {
+		return inFrontOf(other, child) && inFrontOf(child, parent)
+	})
+
+	parent.SetAlwaysOnTop(true)
+	eventually(t, "the child above its parent on top again, and above the other window", func() bool {
+		return inFrontOf(child, parent) && inFrontOf(child, other)
+	})
+}
+
+// TestChildWindowFollowsFullScreenParent puts a child window's parent in
+// full screen, a Space of its own: the child goes there with it, above it,
+// and comes back with it.
+func TestChildWindowFollowsFullScreenParent(t *testing.T) {
+	o := childWindowsOrigin(t)
+	parent := newWindow(t, mygo.WindowOptions{Title: "Full-screen parent", Width: 400, Height: 300, X: o.X, Y: o.Y})
+	child := newWindow(t, mygo.WindowOptions{Title: "Child of the full-screen parent", Parent: parent, Width: 240, Height: 180, X: o.X + 40, Y: o.Y + 40})
+	waitOnScreen(child)
+	eventually(t, "the child above its parent", func() bool { return inFrontOf(child, parent) })
+
+	parent.SetFullScreen(true)
+	eventually(t, "the parent in full screen", parent.IsFullScreen)
+	eventually(t, "the child on its full-screen parent's Space, above it", func() bool {
+		return onActiveSpace(parent) && onActiveSpace(child) && child.IsVisible() && inFrontOf(child, parent)
+	})
+
+	parent.SetFullScreen(false)
+	eventually(t, "the parent out of full screen", func() bool { return !parent.IsFullScreen() })
+	eventually(t, "the child back with its parent, above it", func() bool {
+		return onActiveSpace(parent) && onActiveSpace(child) && child.IsVisible() && inFrontOf(child, parent)
+	})
+	parent.Focus()
+	eventually(t, "the child above its raised parent after full screen", func() bool { return inFrontOf(child, parent) })
+}

@@ -77,6 +77,15 @@ type window struct {
 	hiddenWithParent bool
 	hiddenRank       int
 	orderPending     bool
+	// onTop is what AlwaysOnTop asked for, which the window's level
+	// follows, or its parent's when higher (applyLevel). attached tells
+	// that a child window is an AppKit child window of its parent, which
+	// is in full screen, and childrenAttached that the window attaches its
+	// child windows, from entering full screen to leaving it
+	// (attachChildren).
+	onTop            bool
+	attached         bool
+	childrenAttached bool
 	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
 	// flyoutSize.
 	flyout     platform.Flyout
@@ -204,9 +213,9 @@ func (w *window) create() {
 		send(w.win, "setHidesOnDeactivate:", 0)
 	}
 	send(w.win, "setCollectionBehavior:", uintptr(behavior))
-	if o.AlwaysOnTop {
-		send(w.win, "setLevel:", nsFloatingWindowLevel)
-	}
+	// A child window takes its parent's level when that is higher.
+	w.onTop = o.AlwaysOnTop
+	w.applyLevel()
 	w.fillWindow(content)
 	if o.Frameless {
 		w.roundContent(o.CornerRadius)
@@ -503,6 +512,7 @@ func (w *window) cleanup() {
 	}
 	w.closeWebViews()
 	w.closed = true
+	w.releaseChildren()
 	b := w.b
 	send(w.web, "removeObserver:forKeyPath:", uintptr(w.delegate), uintptr(nsString("title")))
 	if w.trafficLights != nil {
@@ -643,14 +653,28 @@ func (w *window) IsMaximizable() bool {
 }
 
 func (w *window) SetAlwaysOnTop(v bool) {
-	level := uintptr(nsNormalWindowLevel)
-	if v {
-		level = nsFloatingWindowLevel
+	w.onTop = v
+	if w.host != nil || w.opts.Flyout != nil {
+		level := uintptr(nsNormalWindowLevel)
+		if v {
+			level = nsFloatingWindowLevel
+		}
+		send(w.win, "setLevel:", level)
+		return
 	}
-	send(w.win, "setLevel:", level)
+	// Its child windows follow it to its level (applyLevel).
+	w.applyLevel()
+	if w.onScreen() {
+		w.orderChildrenLater()
+	}
 }
 
-func (w *window) IsAlwaysOnTop() bool { return sendInt(w.win, "level") != nsNormalWindowLevel }
+func (w *window) IsAlwaysOnTop() bool {
+	if w.isChild() {
+		return w.onTop // its level is its parent's when that is higher
+	}
+	return sendInt(w.win, "level") != nsNormalWindowLevel
+}
 
 func (w *window) Show() {
 	if w.popover != 0 {
@@ -845,6 +869,8 @@ func (w *window) Hide() {
 		return
 	}
 	w.hiddenWithParent = false
+	// Attached, AppKit would show it again with its parent.
+	w.detach()
 	send(w.win, "orderOut:", 0)
 	w.hideChildren()
 }
@@ -1711,6 +1737,19 @@ func registerWindowClasses() {
 				}
 				return proposed
 			}),
+			// The child windows follow their parent into its full-screen
+			// Space, and are left where they are as it comes out of it.
+			method("windowWillEnterFullScreen:", func(self id, _ objc.SEL, n id) {
+				if w := b().windowFor(self); w != nil {
+					w.childrenAttached = true
+					w.attachChildren()
+				}
+			}),
+			method("windowDidFailToEnterFullScreen:", func(self id, _ objc.SEL, win id) {
+				if w := b().windowFor(self); w != nil {
+					w.leftFullScreen()
+				}
+			}),
 			method("windowDidEnterFullScreen:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
 					w.h.EnteredFullScreen()
@@ -1721,6 +1760,7 @@ func registerWindowClasses() {
 			}),
 			method("windowDidExitFullScreen:", func(self id, _ objc.SEL, n id) {
 				if w := b().windowFor(self); w != nil {
+					w.leftFullScreen()
 					w.layoutTrafficLights()
 					w.h.LeftFullScreen()
 					if w.hiddenTitleBar() {

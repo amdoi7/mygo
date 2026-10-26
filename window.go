@@ -157,8 +157,9 @@ type WindowOptions struct {
 	// Parent makes this window a child window that stays on top of it
 	// and closes with it. It can go to any display, and stays where it is
 	// as its parent moves. On macOS it is ordered above its parent
-	// whenever the parent comes in front, and hides while the parent is
-	// minimized or hidden.
+	// whenever the parent comes in front, stays above a parent that is
+	// AlwaysOnTop, goes with it into full screen, and hides while the
+	// parent is minimized or hidden.
 	Parent *Window
 	// Modal makes a child window modal to its Parent.
 	Modal bool

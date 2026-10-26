@@ -24,6 +24,14 @@ import (
 // Dock, in the order they are in. It hides with its
 // parent, as AppKit's child windows do, and shows again with it. Sheets
 // and flyouts are still attached, as AppKit attaches them.
+//
+// Ordered across levels, a child window would go behind a parent that is
+// always on top: it takes its parent's level when that is higher, as
+// AppKit gives an attached child window (applyLevel). And a full-screen
+// window has a Space of its own, which an ordinary window does not
+// follow it to: the child windows that show are attached as AppKit's
+// while their parent is in full screen, which takes them there, and
+// detached as it comes out of it, back on its display's Space.
 
 // isChild tells that w is a child window kept above its parent: one with
 // a Parent that is neither a sheet, nor a flyout or popover, nor a web
@@ -57,6 +65,7 @@ func (w *window) showAboveParent(key bool) {
 	default:
 		send(w.win, "orderFrontRegardless")
 	}
+	w.attach()
 	w.orderChildrenLater()
 }
 
@@ -152,6 +161,7 @@ func (w *window) orderChildren() id {
 		c := kids[i]
 		c.hiddenWithParent = false
 		c.orderAbove(top)
+		c.attach()
 		top = c.orderChildren()
 	}
 	return top
@@ -223,6 +233,102 @@ func childOrder[W comparable](front []W, shows func(W) bool, hidden []W, rank fu
 		}
 	}
 	return kids
+}
+
+// applyLevel gives w the level AlwaysOnTop asked for, or its parent's
+// when that is higher, as a child window ordered above its parent across
+// levels would go behind it; then its child windows theirs.
+func (w *window) applyLevel() {
+	if w.closed || w.host != nil || w.opts.Flyout != nil {
+		return
+	}
+	level := nsNormalWindowLevel
+	if w.onTop {
+		level = nsFloatingWindowLevel
+	}
+	if w.isChild() {
+		level = max(level, sendInt(w.parent.win, "level"))
+	}
+	if sendInt(w.win, "level") != level {
+		send(w.win, "setLevel:", uintptr(level))
+	}
+	for _, c := range w.b.byNSWindow {
+		if c.parent == w && c.isChild() {
+			c.applyLevel()
+		}
+	}
+}
+
+// attach makes w an AppKit child window of its parent while the parent is
+// in full screen, or attached itself, so that it goes to the parent's
+// Space; then its own child windows.
+func (w *window) attach() {
+	if w.attached || !w.isChild() || !(w.parent.childrenAttached || w.parent.attached) ||
+		!w.onScreen() || !w.parent.onScreen() {
+		return
+	}
+	// AppKit orders w above its parent, which orders nothing more.
+	ordering := w.b.orderingChildren
+	w.b.orderingChildren = true
+	send(w.parent.win, "addChildWindow:ordered:", uintptr(w.win), 1) // NSWindowAbove
+	w.b.orderingChildren = ordering
+	w.attached = true
+	w.attachChildren()
+}
+
+// attachChildren attaches w's child windows that show, back to front, as
+// AppKit keeps the one attached last in front.
+func (w *window) attachChildren() {
+	kids := w.children(false)
+	for i := len(kids) - 1; i >= 0; i-- {
+		kids[i].attach()
+	}
+}
+
+// detach stops w being an AppKit child window (attach), and its child
+// windows too unless w is in full screen itself, giving each its own
+// level back.
+func (w *window) detach() {
+	if !w.attached {
+		return
+	}
+	if w.parent != nil {
+		send(w.parent.win, "removeChildWindow:", uintptr(w.win))
+	}
+	w.attached = false
+	if !w.childrenAttached {
+		w.detachChildren()
+	}
+	w.applyLevel()
+}
+
+func (w *window) detachChildren() {
+	for _, c := range w.b.byNSWindow {
+		if c.parent == w && c.attached {
+			c.detach()
+		}
+	}
+}
+
+// leftFullScreen detaches w's child windows as w comes out of full screen,
+// or fails to go in, and orders them above it again.
+func (w *window) leftFullScreen() {
+	w.childrenAttached = false
+	if !w.attached {
+		w.detachChildren()
+	}
+	w.orderChildrenLater()
+}
+
+// releaseChildren detaches w's child windows as w closes, and gives them
+// their own level back.
+func (w *window) releaseChildren() {
+	for _, c := range w.b.byNSWindow {
+		if c.parent == w && !c.closed {
+			c.detach()
+			c.applyLevel()
+		}
+	}
 }
 
 // orderWindowRelativeTo overrides orderWindow:relativeTo: of the class
