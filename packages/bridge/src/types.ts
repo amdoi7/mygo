@@ -1,5 +1,6 @@
 // The public types are those of the mygo-runtime package.
 import type { Direction, Platform } from "../../runtime/src/types";
+import type { FitLimits } from "./fit-content";
 
 export type {
   Channel,
@@ -21,6 +22,9 @@ export interface BridgeConfig {
   /** The language the app shows, e.g. "zh-Hans", and its direction. */
   locale: string;
   dir: Direction;
+  /** The limits of a window that takes its content's size (FitContent), in
+   * CSS pixels; absent for other windows. */
+  fit?: FitLimits;
 }
 
 /** Messages posted from the page to Go. */
@@ -32,6 +36,9 @@ export type Outgoing =
   | { t: "dom-ready" }
   /** The page's theme color changed: #rrggbbaa, or "" for none. */
   | { t: "theme-color"; v: string }
+  /** The size of the content of a window that takes it (FitContent), in CSS
+   * pixels, scrollbars included. */
+  | { t: "content-size"; w: number; h: number }
   | { t: "drag" }
   | { t: "dblclick" };
 

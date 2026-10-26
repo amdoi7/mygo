@@ -420,6 +420,18 @@ that tells them at document start is replaced when they change.
 `mygo.Theme.Preferences()` reads them on the Go side, see
 [native](native.md#accent-color-and-accessibility).
 
+## Pages that size their window
+
+The page of a flyout or a window with `FitContent` sizes it, without a
+`ResizeObserver` or a bound method of its own: MyGo's runtime lays `html`
+out at the width of its content, within the window's limits, and the
+window takes the root's size as it changes (see
+[windows](windows.md#size-a-flyout-to-its-content)). Let `html` and
+`body` take their content's size: a `height: 100%` or `100vh` on them
+keeps the window at the size it has, and a `width` on `html` replaces the
+content's. Text wider than the maximum wraps, and content taller than it
+scrolls.
+
 ## Links and new windows
 
 Links with `target="_blank"` and `window.open()` call the window's open

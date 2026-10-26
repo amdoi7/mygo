@@ -77,6 +77,16 @@ type WindowOptions struct {
 	X, Y                int
 	MinWidth, MinHeight int
 	MaxWidth, MaxHeight int
+	// FitContent sizes the page area to its page's content, and follows
+	// it as it changes, as FlyoutOptions.FitContent sizes a flyout: a
+	// panel showing a launcher's results, say. Width and Height are its
+	// size until the page tells its own. MinWidth, MinHeight, MaxWidth
+	// and MaxHeight bound it, and the work area of its display. It changes
+	// only when the content's size does, and only in the dimension that
+	// changed, so a size the user gives a resizable window holds until
+	// then, and not while the window is maximized or in full screen.
+	// Native UI (Content) does not fit.
+	FitContent bool
 
 	// Hidden creates the window without showing it. Call Show, typically
 	// from OnReadyToShow, to avoid a blank window while the page loads.
@@ -238,6 +248,9 @@ type Window struct {
 	flyoutSize platform.Size
 	// panel is WindowOptions.Panel.
 	panel bool
+	// fit sizes a window that takes its page's size (FitContent), nil
+	// for others. Main thread only.
+	fit *fitContent
 	// host is the window a web view is in, for the page of a web view
 	// (webView); webViews are the pages of a window's web views, guarded
 	// by the lock of windows.
@@ -458,6 +471,16 @@ func newWindow(opts WindowOptions, bg *background, native uintptr, flyout *flyou
 
 	w := &Window{id: id, parent: opts.Parent, trustedOrigins: opts.Page.TrustedOrigins, secret: randomText(), stateKey: opts.StateKey, background: bg, content: opts.Content, panel: opts.Panel && flyout == nil}
 	w.pg = &Page{w}
+	if opts.Content == nil {
+		if flyout != nil {
+			w.fit = flyout.fit
+		} else if opts.FitContent {
+			w.fit = &fitContent{
+				min: platform.Size{Width: opts.MinWidth, Height: opts.MinHeight},
+				max: platform.Size{Width: opts.MaxWidth, Height: opts.MaxHeight},
+			}
+		}
+	}
 	w.hiddenTitleBar = !opts.Frameless && (opts.TitleBarStyle == TitleBarHidden || opts.TitleBarStyle == TitleBarHiddenInset)
 	w.resetPage()
 	popts := w.platformOptions(&opts)
@@ -583,6 +606,9 @@ func (w *Window) platformOptions(o *WindowOptions) *platform.WindowOptions {
 		p.Parent = o.Parent.native
 	}
 	w.preload = po.PreloadScript
+	if w.fit != nil {
+		w.fit.zoom = p.Zoom
+	}
 	p.UserScripts = w.pageScripts()
 	// Kept to replace the preferences' and the locale's (sendPreferences,
 	// pagesLocaleChanged).
@@ -1311,7 +1337,7 @@ func (p *Page) SetZoomFactor(f float64) {
 	}
 	p.w.page(func(n platform.Window) {
 		n.SetZoom(f)
-		p.w.sendTitleBar() // the controls take other CSS pixels
+		p.w.zoomChanged()
 	})
 }
 

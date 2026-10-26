@@ -44,6 +44,7 @@ on the screen. Sizes and positions are in device-independent pixels.
 | `Width`, `Height` | the size of the window, or of what it shows with `UseContentSize` |
 | `X`, `Y` | the top-left corner; the window is centered when both are 0 |
 | `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | limits of resizing; 0 means none |
+| `FitContent` | sizes the page area to its page's content, and follows it, within the limits above, as a [flyout's](#size-a-flyout-to-its-content) |
 | `StateKey` | remembers the window's bounds and state under this key, see [below](#remember-where-windows-were) |
 | `Hidden` | creates the window without showing it |
 | `Maximized`, `FullScreen` | creates it maximized or in full screen |
@@ -326,6 +327,45 @@ Linux's tray icons tell neither clicks nor where they are: open the flyout
 from a menu item of the icon there, and it shows in the middle of the
 primary display's work area. `examples/menubar-flyout` is such an app.
 
+### Size a flyout to its content
+
+With `FitContent`, a flyout takes the size of its page's content and
+follows it as it changes, as browsers size the popups of their
+extensions: a menu bar popover with a list, a hover card, a launcher's
+results. `Width` and `Height` are its size only until the page tells its
+own, which it does before its DOM is ready, so a flyout created `Hidden`
+and shown from `OnReadyToShow` shows at its size. `MinWidth`, `MinHeight`,
+`MaxWidth` and `MaxHeight` bound it, and the work area, as any flyout:
+
+```go
+fl := mygo.NewFlyout(mygo.FlyoutOptions{
+	Tray:       tray,
+	Placement:  mygo.PlacementBottom,
+	FitContent: true,
+	MaxWidth:   400,
+	MaxHeight:  600,
+	URL:        "/panel",
+})
+```
+
+MyGo's runtime in the page lays its root element (`html`) out at the
+width of its content (`width: max-content`), within the limits, so that
+its text wraps at `MaxWidth`, and watches its size with a
+`ResizeObserver`: its height is its content's, the body's margins
+included, beyond `MaxHeight` the page scrolls, and the room a scrollbar
+takes is part of the size. A page that gives `html` a size of its own,
+as `height: 100%`, keeps the flyout at that size: let the root and the
+body take their content's. The size is the page's CSS pixels times its
+zoom, in DIPs, and a size that changes nothing resizes nothing. Native
+UI (`Content`) does not fit.
+
+`WindowOptions.FitContent` does the same for the page area of a window,
+a [panel](#panels) for one, within its `MinWidth`, `MinHeight`,
+`MaxWidth` and `MaxHeight` and the work area of its display. It follows
+the content only when the content's size changes, and only in the
+dimension that changed, so a size the user gives a resizable window holds
+until then, and not while the window is maximized or in full screen.
+
 How each platform shows them:
 
 | | macOS | Linux | Windows |
@@ -388,6 +428,10 @@ mygo.App.WhenReady(func() {
 	})
 })
 ```
+
+A panel whose results grow and shrink, as a launcher's, takes its page's
+size with `FitContent`, as [a flyout](#size-a-flyout-to-its-content)
+does: give it `MaxHeight` rather than a `Height` to pick.
 
 An Escape the page does not handle (`preventDefault()`) or native UI
 leaves closes a panel, as the user closing it, which `OnClose` listeners
