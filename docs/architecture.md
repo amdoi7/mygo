@@ -1634,7 +1634,14 @@ as in Tauri:
   Version 4 in pure Go (`crypto/hmac`), its SHA-256 payload hash checked
   by the service; the bucket goes in the host name on AWS, and in the path
   with a custom `endpoint` or a bucket name with dots, unless `pathStyle`
-  says otherwise.
+  says otherwise. An app with an update service of its own gives
+  `Updater.SetSource` an `UpdateSource` (an `atomic.Pointer` that `Check`
+  reads once): `Check` reads the manifest from its `Manifest` in place of
+  the feed, and the `Update` keeps the source, whose `Open` downloads the
+  archive and deltas in place of `httpGet`. The configured feed is itself
+  a source (`feedSource`), so parsing, sizes, signatures, staging and the
+  swap are the same either way; `Enabled` still needs a build with
+  `updates`, for the public key.
 - File associations (`fileAssociations` in the configuration) are declared by the
   packages (see the table below) and their extensions linked into the
   binary; like deep links, files of those extensions among the launch

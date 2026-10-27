@@ -128,8 +128,8 @@ components, from buttons to tables.
 - [Building and distributing](distribution.md): packaged apps for macOS,
   Windows and Linux, signing, installers and disk images.
 - [Auto-updates](updates.md): signed updates from GitHub releases, an S3
-  bucket or your own server, delta updates, and an update window in the
-  manner of Sparkle.
+  bucket, your own server or the app's own update service, delta updates,
+  and an update window in the manner of Sparkle.
 - [GitHub Actions](github-actions.md): a workflow that builds, signs and
   notarizes the apps of every platform, and publishes them with their
   updates, when you push a tag.
