@@ -376,3 +376,37 @@ func TestScrollPassesToOuterHandler(t *testing.T) {
 		t.Fatalf("neither handler taking it: outer %v, page %v; want 30, 30", outer, page.Y)
 	}
 }
+
+// A handler around a scroll container sees the wheel before the container
+// scrolls, as a canvas that zooms with Ctrl and the wheel does, and the
+// container scrolls when the handler leaves it.
+func TestScrollHandlerAroundContainer(t *testing.T) {
+	var inner ScrollState
+	var zoomed float32
+	tt := NewTester(func(c *Context) {
+		Box(c).Fill().HandleInput(func(ev InputEvent) bool {
+			if ev.Kind != InputScroll || ev.Mods&Ctrl == 0 {
+				return false
+			}
+			zoomed += ev.DY
+			return true
+		}).Children(func() {
+			Scroll(c).Size(200, 200).TrackScroll(&inner).Children(func() {
+				Box(c).Height(1000).Shrink(0)
+			})
+		})
+	}, 200, 200)
+	defer tt.rt.close()
+	tt.Frame()
+
+	tt.send(platform.SurfaceEvent{Kind: platform.PointerScroll, X: 20, Y: 20, DY: 30, Precise: true, Mods: platform.Modifiers(Ctrl)})
+	tt.Frame()
+	if zoomed != 30 || inner.Y != 0 {
+		t.Fatalf("Ctrl and the wheel: handler took %v, container scrolled %v; want 30, 0", zoomed, inner.Y)
+	}
+	tt.Scroll(20, 20, 0, 30)
+	tt.Frame()
+	if zoomed != 30 || inner.Y != 30 {
+		t.Fatalf("the wheel alone: handler took %v, container scrolled %v; want 30, 30", zoomed, inner.Y)
+	}
+}
