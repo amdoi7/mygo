@@ -12,12 +12,15 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// HTTP authentication and server certificates of pages: ICoreWebView2_10's
-// BasicAuthenticationRequested and ICoreWebView2_14's
-// ServerCertificateErrorDetected. Vtable indices from WebView2.h, as in
-// webview2.go: ICoreWebView2_9 ends with put_DefaultDownloadDialogMargin
-// (96), ICoreWebView2_13 with get_Profile (105).
+// HTTP authentication, server certificates and client certificates of
+// pages: ICoreWebView2_10's BasicAuthenticationRequested,
+// ICoreWebView2_14's ServerCertificateErrorDetected and ICoreWebView2_5's
+// ClientCertificateRequested. Vtable indices from WebView2.h, as in
+// webview2.go: ICoreWebView2_4 ends with remove_DownloadStarting (76),
+// ICoreWebView2_9 with put_DefaultDownloadDialogMargin (96),
+// ICoreWebView2_13 with get_Profile (105).
 const (
+	wv5AddClientCertificateRequested      = 77
 	wv10AddBasicAuthenticationRequested   = 97
 	wv14AddServerCertificateErrorDetected = 106
 
@@ -36,9 +39,22 @@ const (
 	certErrGetServerCertificate = 5
 	certErrPutAction            = 7
 	certToPemEncoding           = 9
+
+	// ICoreWebView2ClientCertificateRequestedEventArgs, and the
+	// collections it holds: ICoreWebView2StringCollection and
+	// ICoreWebView2ClientCertificateCollection.
+	clientCertGetHost                = 3
+	clientCertGetPort                = 4
+	clientCertGetAllowedAuthorities  = 6
+	clientCertGetMutuallyTrusted     = 7
+	clientCertPutSelectedCertificate = 9
+	clientCertPutHandled             = 13
+	collectionGetCount               = 3
+	collectionGetValueAtIndex        = 4
 )
 
 var (
+	iidICoreWebView2_5  = guid("bedb11b8-d63c-11eb-b8bc-0242ac130003")
 	iidICoreWebView2_10 = guid("b1690564-6f5a-4983-8e48-31d1143fecdb")
 	iidICoreWebView2_14 = guid("6daa4f10-4a90-4753-8898-77c5df534165")
 )
@@ -83,6 +99,12 @@ func pemCertificate(s string) []byte {
 // on runtimes that have them.
 func (w *window) addAuthHandlers() {
 	var tok int64
+	if wv5 := queryInterface(w.webview, &iidICoreWebView2_5); wv5 != 0 {
+		withHandler(w.clientCertificateRequested, func(h uintptr) uintptr {
+			return comCall(wv5, wv5AddClientCertificateRequested, h, uintptr(unsafe.Pointer(&tok)))
+		})
+		release(wv5)
+	}
 	if wv10 := queryInterface(w.webview, &iidICoreWebView2_10); wv10 != 0 {
 		withHandler(w.basicAuthenticationRequested, func(h uintptr) uintptr {
 			return comCall(wv10, wv10AddBasicAuthenticationRequested, h, uintptr(unsafe.Pointer(&tok)))
@@ -159,4 +181,92 @@ func (w *window) serverCertificateErrorDetected(_, args uintptr) {
 		const alwaysAllow = 0 // COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW
 		comCall(args, certErrPutAction, alwaysAllow)
 	}
+}
+
+// clientCertificateRequested asks the app which of the certificates
+// WebView2 found in the user's store to present to a server asking for
+// one. Leaving Handled false leaves it to WebView2: its picker.
+func (w *window) clientCertificateRequested(_, args uintptr) {
+	if !w.h.HandlesClientCertificates() {
+		return
+	}
+	var p uintptr
+	comCall(args, clientCertGetHost, uintptr(unsafe.Pointer(&p)))
+	req := platform.ClientCertificateRequest{Host: takeWstr(p)}
+	var port int32
+	comCall(args, clientCertGetPort, uintptr(unsafe.Pointer(&port)))
+	req.Port = int(port)
+	// The issuers the server accepts: Base64 of DER-encoded names.
+	var names uintptr
+	if !failed(comCall(args, clientCertGetAllowedAuthorities, uintptr(unsafe.Pointer(&names)))) && names != 0 {
+		for i := range collectionCount(names) {
+			if failed(comCall(names, collectionGetValueAtIndex, uintptr(i), uintptr(unsafe.Pointer(&p)))) {
+				continue
+			}
+			if der := base64DER(takeWstr(p)); der != nil {
+				req.Issuers = append(req.Issuers, der)
+			}
+		}
+		release(names)
+	}
+	// The store's certificates WebView2 offers for the server, kept
+	// until the answer, by the index the app answers with.
+	var certs []uintptr
+	defer func() {
+		for _, c := range certs {
+			release(c)
+		}
+	}()
+	var list uintptr
+	if !failed(comCall(args, clientCertGetMutuallyTrusted, uintptr(unsafe.Pointer(&list)))) && list != 0 {
+		for i := range collectionCount(list) {
+			var c uintptr
+			if failed(comCall(list, collectionGetValueAtIndex, uintptr(i), uintptr(unsafe.Pointer(&c)))) || c == 0 {
+				continue
+			}
+			var der []byte
+			if !failed(comCall(c, certToPemEncoding, uintptr(unsafe.Pointer(&p)))) {
+				der = pemCertificate(takeWstr(p))
+			}
+			if der == nil {
+				release(c)
+				continue
+			}
+			certs = append(certs, c)
+			req.Certificates = append(req.Certificates, der)
+		}
+		release(list)
+	}
+	resp := w.h.ClientCertificateRequested(req)
+	if resp.Default {
+		return
+	}
+	if resp.Index >= 0 && resp.Index < len(certs) {
+		comCall(args, clientCertPutSelectedCertificate, certs[resp.Index])
+	}
+	// Handled without a certificate goes on without one.
+	comCall(args, clientCertPutHandled, 1)
+}
+
+// collectionCount returns the Count of a WebView2 collection.
+func collectionCount(c uintptr) uint32 {
+	var n uint32
+	if failed(comCall(c, collectionGetCount, uintptr(unsafe.Pointer(&n)))) {
+		return 0
+	}
+	return n
+}
+
+// base64DER decodes the Base64 of a DER encoding, padded or not, nil
+// for anything else.
+func base64DER(s string) []byte {
+	s = strings.TrimSpace(s)
+	der, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		der, err = base64.RawStdEncoding.DecodeString(s)
+	}
+	if err != nil || len(der) == 0 {
+		return nil
+	}
+	return der
 }

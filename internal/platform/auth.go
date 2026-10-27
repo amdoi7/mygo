@@ -36,6 +36,32 @@ type CertificateError struct {
 	Certificate []byte
 }
 
+// ClientCertificateRequest is a server asking the page, or what it
+// loads, for a TLS client certificate
+// (WindowHandler.ClientCertificateRequested).
+type ClientCertificateRequest struct {
+	// Host and Port of the server asking.
+	Host string
+	Port int
+	// Issuers are the DER-encoded distinguished names of the certificate
+	// authorities the server accepts, nil when the web view does not
+	// tell (Linux) or the server names none.
+	Issuers [][]byte
+	// Certificates are the DER-encoded certificates of the identities
+	// the system offers for the request, which the backend can present
+	// by their index.
+	Certificates [][]byte
+}
+
+// ClientCertificateResponse answers a ClientCertificateRequest. Default
+// leaves it to the web view, as if nobody had been asked; otherwise the
+// connection goes on with Certificates[Index], or, when Index is out of
+// range (-1), without a certificate, which the server may refuse.
+type ClientCertificateResponse struct {
+	Default bool
+	Index   int
+}
+
 // ParseAuthChallenge returns the scheme, lowercase, and the realm of an
 // HTTP authentication challenge, as a WWW-Authenticate header gives it:
 // `Basic realm="intranet", charset="UTF-8"` is "basic" and "intranet".

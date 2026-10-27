@@ -23,3 +23,17 @@ func TestPEMCertificate(t *testing.T) {
 		}
 	}
 }
+
+func TestBase64DER(t *testing.T) {
+	name := []byte{0x30, 0x1d, 0x31, 0x1b, 0x30, 0x19, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x12}
+	for _, s := range []string{"MB0xGzAZBgNVBAMMEg==", "MB0xGzAZBgNVBAMMEg", " MB0xGzAZBgNVBAMMEg==\r\n"} {
+		if got := base64DER(s); !bytes.Equal(got, name) {
+			t.Errorf("base64DER(%q) = %x, want %x", s, got, name)
+		}
+	}
+	for _, s := range []string{"", "CN=Example CA", "!!"} {
+		if got := base64DER(s); got != nil {
+			t.Errorf("base64DER(%q) = %x, want nil", s, got)
+		}
+	}
+}

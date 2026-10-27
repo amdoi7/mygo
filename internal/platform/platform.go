@@ -812,6 +812,12 @@ type WindowHandler interface {
 	// leaves them to the web view otherwise.
 	CertificateError(e CertificateError) bool
 	HandlesCertificateErrors() bool
+	// ClientCertificateRequested answers a server asking for a TLS
+	// client certificate. A backend lists the system's certificates
+	// for it, and asks, only while HandlesClientCertificates reports
+	// true, and leaves the request to the web view otherwise.
+	ClientCertificateRequested(req ClientCertificateRequest) ClientCertificateResponse
+	HandlesClientCertificates() bool
 	// ContextMenu asks what the page's context menu shows, as it is
 	// about to open, and HandlesContextMenu whether to ask at all: a
 	// backend describes its menu only while it does.

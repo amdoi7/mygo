@@ -985,7 +985,40 @@ win.Page().SetCertificateErrorHandler(func(e mygo.CertificateError) bool {
 
 On Linux only the page itself is asked about, not what it loads, and on
 Linux and Windows a certificate allowed for a host stays allowed in every
-window until the app quits. Client certificates are left to the system.
+window until the app quits.
+
+A server can ask for a client certificate, to tell who connects (mutual
+TLS). `Page.SetClientCertificateHandler` picks one of those the system
+offers, with their private keys: the keychains' identities on macOS, the
+user's certificate store on Windows, those of the authorities the server
+named (`Issuers`) when it named any. Answer with one of
+`req.Certificates`, an empty `ClientCertificateResponse` to present none,
+or `Default: true` to leave the choice to the platform:
+
+```go
+win.Page().SetClientCertificateHandler(func(req mygo.ClientCertificateRequest) mygo.ClientCertificateResponse {
+	if req.Host != "intranet.example.com" {
+		return mygo.ClientCertificateResponse{Default: true}
+	}
+	for i, c := range req.Certificates {
+		if c.Issuer == "CN=Example Corp CA,O=Example Corp" && time.Now().Before(c.NotAfter) {
+			return mygo.ClientCertificateResponse{Certificate: &req.Certificates[i]}
+		}
+	}
+	return mygo.ClientCertificateResponse{} // none: the server decides
+})
+```
+
+Without a handler, WebView2 shows its picker when there are certificates
+to pick from, and macOS and Linux go on without a certificate. The web
+view may keep the answer for that server for the rest of the session,
+and the system may ask the user before a private key is used, as macOS
+does for a key in the keychain. WebKitGTK knows no certificates, so on
+Linux `Certificates` is always empty and `Issuers` unknown: the handler
+can present none or leave the default, with WebKitGTK 4.1 from 2.34. A
+certificate the app holds itself, such as a PKCS#12 file, cannot be
+presented: WebView2 presents only certificates of the store, and macOS
+would import it into the keychain.
 
 ### Blocking content
 

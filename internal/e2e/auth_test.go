@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -163,4 +165,93 @@ func TestCertificateErrorHandler(t *testing.T) {
 		return e.Host == "127.0.0.1" && bytes.Equal(e.Certificate, cert.Certificate[0])
 	})
 	waitFor(t, w, `document.title === "trusted"`)
+}
+
+// TestClientCertificateHandler checks what a handler can do without a
+// certificate of the system, which tests cannot add without side
+// effects: present none, and leave the choice to the platform. The
+// server asks for a certificate of a certificate authority made for the
+// test, so the system offers none (on Windows, WebView2 shows no picker
+// then), and serves the page either way, saying how many it got.
+func TestClientCertificateHandler(t *testing.T) {
+	cert := selfSigned(t)
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: "mygo e2e client CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCAs := x509.NewCertPool()
+	clientCAs.AddCert(ca)
+
+	open := func(answer mygo.ClientCertificateResponse) (*mygo.Window, *httptest.Server, chan mygo.ClientCertificateRequest) {
+		t.Helper()
+		// A server for each answer, as the web view may keep one for its
+		// server.
+		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "<!doctype html><title>certificates: %d</title>", len(r.TLS.PeerCertificates))
+		}))
+		server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.RequestClientCert, ClientCAs: clientCAs}
+		server.StartTLS()
+		t.Cleanup(server.Close)
+
+		w := newWindow(t, mygo.WindowOptions{Title: "Client certificates", Width: 300, Height: 200})
+		w.Page().SetCertificateErrorHandler(func(e mygo.CertificateError) bool {
+			return e.Host == "127.0.0.1" && bytes.Equal(e.Certificate, cert.Certificate[0])
+		})
+		asked := make(chan mygo.ClientCertificateRequest, 8)
+		w.Page().SetClientCertificateHandler(func(req mygo.ClientCertificateRequest) mygo.ClientCertificateResponse {
+			offer(asked, req)
+			return answer
+		})
+		if err := w.Page().LoadURL(server.URL + "/"); err != nil {
+			t.Fatal(err)
+		}
+		return w, server, asked
+	}
+	check := func(t *testing.T, req mygo.ClientCertificateRequest, server *httptest.Server) {
+		t.Helper()
+		u, _ := url.Parse(server.URL)
+		port, _ := strconv.Atoi(u.Port())
+		if req.Host != "127.0.0.1" || req.Port != port {
+			t.Errorf("request for %s:%d, want 127.0.0.1:%d", req.Host, req.Port, port)
+		}
+		// WebKitGTK does not tell the issuers.
+		var issuers []string
+		if runtime.GOOS != "linux" {
+			issuers = []string{"CN=mygo e2e client CA"}
+		}
+		if !slices.Equal(req.Issuers, issuers) {
+			t.Errorf("issuers = %q, want %q", req.Issuers, issuers)
+		}
+		if len(req.Certificates) != 0 {
+			t.Errorf("the system offers certificates of the test's own authority: %+v", req.Certificates)
+		}
+	}
+
+	t.Run("none", func(t *testing.T) {
+		w, server, asked := open(mygo.ClientCertificateResponse{})
+		check(t, wait.For(t, "the client certificate handler", asked), server)
+		waitFor(t, w, `document.title === "certificates: 0"`)
+	})
+	t.Run("default", func(t *testing.T) {
+		w, server, asked := open(mygo.ClientCertificateResponse{Default: true})
+		check(t, wait.For(t, "the client certificate handler", asked), server)
+		waitFor(t, w, `document.title === "certificates: 0"`)
+	})
 }

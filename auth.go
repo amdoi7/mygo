@@ -1,6 +1,14 @@
 package mygo
 
-import "github.com/egoist/mygo/internal/platform"
+import (
+	"bytes"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"time"
+
+	"github.com/egoist/mygo/internal/platform"
+)
 
 // AuthRequest is passed to the auth handler of a window (SetAuthHandler):
 // a server, or a proxy, asks for a user name and a password before it
@@ -148,4 +156,174 @@ func (h *windowHandler) HandlesCertificateErrors() bool {
 	h.w.mu.Lock()
 	defer h.w.mu.Unlock()
 	return h.w.certificateHandler != nil
+}
+
+// ClientCertificateRequest is passed to the client certificate handler
+// of a window (SetClientCertificateHandler): a server asks the page, or
+// what it loads, for a TLS client certificate, to tell who connects.
+type ClientCertificateRequest struct {
+	// Host and Port of the server asking, e.g. "intranet.example.com"
+	// and 443.
+	Host string
+	Port int
+	// Issuers are the distinguished names of the certificate
+	// authorities whose certificates the server accepts, as
+	// pkix.RDNSequence's String writes them ("CN=Example CA,O=Example").
+	// It is nil when the server names none, and on Linux, where
+	// WebKitGTK does not tell.
+	Issuers []string
+	// Certificates are those the system offers for the server, each
+	// with its private key, in the system's order: on macOS the
+	// keychains' identities, on Windows the user's certificate store,
+	// those whose chain has one of Issuers when the server names any.
+	// It is empty on Linux, where WebKitGTK knows no certificates.
+	Certificates []ClientCertificate
+}
+
+// ClientCertificate is a certificate the system can present to a
+// server, with its private key, which stays in the system.
+type ClientCertificate struct {
+	// Subject and Issuer are the distinguished names of the certificate
+	// and of its issuer, as pkix.RDNSequence's String writes them:
+	// "CN=alice,O=Example".
+	Subject, Issuer string
+	// NotBefore and NotAfter bound when the certificate is valid.
+	NotBefore, NotAfter time.Time
+	// Certificate is the certificate, DER-encoded, which
+	// x509.ParseCertificate reads for anything else it says.
+	Certificate []byte
+}
+
+// ClientCertificateResponse answers a ClientCertificateRequest. The zero
+// value presents no certificate, as a user cancelling a browser's
+// picker does: the connection goes on without one, and the server
+// decides, refusing it or serving what it serves to anyone.
+type ClientCertificateResponse struct {
+	// Default leaves the choice to the platform, as without a handler.
+	Default bool
+	// Certificate is the one to present, one of the request's
+	// Certificates: &req.Certificates[i]. Any other presents none.
+	Certificate *ClientCertificate
+}
+
+// SetClientCertificateHandler answers the servers that ask the window's
+// pages, or what they load, for a TLS client certificate (mutual TLS):
+// fn picks one of the certificates the system offers, presents none, or
+// leaves the choice to the platform. It runs on the main thread while
+// the connection waits. The web view may keep the answer for that
+// server for the rest of the session, as browsers do, so fn is not
+// asked for every connection.
+//
+//	page.SetClientCertificateHandler(func(req mygo.ClientCertificateRequest) mygo.ClientCertificateResponse {
+//		if req.Host != "intranet.example.com" {
+//			return mygo.ClientCertificateResponse{Default: true}
+//		}
+//		for i, c := range req.Certificates {
+//			if c.Issuer == "CN=Example Corp CA,O=Example Corp" && time.Now().Before(c.NotAfter) {
+//				return mygo.ClientCertificateResponse{Certificate: &req.Certificates[i]}
+//			}
+//		}
+//		return mygo.ClientCertificateResponse{} // none
+//	})
+//
+// The system may ask the user before the private key of the certificate
+// is used (macOS can, for a key in the keychain; a smart card asks for
+// its PIN). Certificates come from the system only: one the app holds,
+// such as a PKCS#12 file, cannot be presented, as WebView2 presents
+// only those of the certificate store, and macOS would have to import
+// it into the keychain.
+//
+// nil restores the default, the platform's:
+//
+//   - macOS: no picker; WebKit goes on without a certificate. MyGo
+//     answers the NSURLAuthenticationMethodClientCertificate challenges
+//     of WKNavigationDelegate's
+//     webView:didReceiveAuthenticationChallenge:completionHandler:, with
+//     the identities SecItemCopyMatching finds (kSecMatchIssuers).
+//   - Linux: WebKitGTK goes on without a certificate. MyGo answers
+//     WebKitWebView::authenticate's
+//     WEBKIT_AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE_REQUESTED, which
+//     WebKitGTK 2.34 and later ask with libsoup 3 (WebKitGTK 4.1; with
+//     4.0, fn is never asked). WebKitGTK lists no certificates, so fn
+//     can only present none or leave the default.
+//   - Windows: WebView2's picker, when there are certificates to pick
+//     from. MyGo answers ICoreWebView2_5's ClientCertificateRequested,
+//     with its MutuallyTrustedCertificates; on a runtime without it, fn
+//     is never asked.
+func (p *Page) SetClientCertificateHandler(fn func(req ClientCertificateRequest) ClientCertificateResponse) {
+	// The window keeps fn with what converts the backend's request and
+	// answer, which only apps that set a handler link (crypto/x509's
+	// parsing).
+	var answer func(platform.ClientCertificateRequest) platform.ClientCertificateResponse
+	if fn != nil {
+		answer = func(req platform.ClientCertificateRequest) platform.ClientCertificateResponse {
+			return clientCertificateAnswer(req, fn(clientCertificateRequest(req)))
+		}
+	}
+	p.w.mu.Lock()
+	p.w.clientCertificateHandler = answer
+	p.w.mu.Unlock()
+}
+
+func (h *windowHandler) ClientCertificateRequested(req platform.ClientCertificateRequest) platform.ClientCertificateResponse {
+	h.w.mu.Lock()
+	answer := h.w.clientCertificateHandler
+	h.w.mu.Unlock()
+	if answer == nil {
+		return platform.ClientCertificateResponse{Default: true}
+	}
+	return answer(req)
+}
+
+func (h *windowHandler) HandlesClientCertificates() bool {
+	h.w.mu.Lock()
+	defer h.w.mu.Unlock()
+	return h.w.clientCertificateHandler != nil
+}
+
+// clientCertificateRequest describes what a backend asks the app.
+func clientCertificateRequest(req platform.ClientCertificateRequest) ClientCertificateRequest {
+	r := ClientCertificateRequest{Host: req.Host, Port: req.Port}
+	for _, name := range req.Issuers {
+		r.Issuers = append(r.Issuers, distinguishedName(name))
+	}
+	r.Certificates = make([]ClientCertificate, len(req.Certificates))
+	for i, der := range req.Certificates {
+		c := &r.Certificates[i]
+		c.Certificate = der
+		// One that does not parse keeps its place, the index the backend
+		// presents it by, and only its DER.
+		if cert, err := x509.ParseCertificate(der); err == nil {
+			c.Subject = distinguishedName(cert.RawSubject)
+			c.Issuer = distinguishedName(cert.RawIssuer)
+			c.NotBefore, c.NotAfter = cert.NotBefore, cert.NotAfter
+		}
+	}
+	return r
+}
+
+// clientCertificateAnswer finds the certificate resp presents among
+// req's, by its DER encoding: the same certificate is the same key.
+func clientCertificateAnswer(req platform.ClientCertificateRequest, resp ClientCertificateResponse) platform.ClientCertificateResponse {
+	if resp.Default {
+		return platform.ClientCertificateResponse{Default: true}
+	}
+	if resp.Certificate != nil && len(resp.Certificate.Certificate) > 0 {
+		for i, der := range req.Certificates {
+			if bytes.Equal(der, resp.Certificate.Certificate) {
+				return platform.ClientCertificateResponse{Index: i}
+			}
+		}
+	}
+	return platform.ClientCertificateResponse{Index: -1}
+}
+
+// distinguishedName writes a DER-encoded X.501 name as RFC 2253 does,
+// "" for one that does not parse.
+func distinguishedName(der []byte) string {
+	var rdn pkix.RDNSequence
+	if rest, err := asn1.Unmarshal(der, &rdn); err != nil || len(rest) > 0 {
+		return ""
+	}
+	return rdn.String()
 }

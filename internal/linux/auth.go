@@ -11,8 +11,9 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-// HTTP authentication and server certificates of pages: the web view's
-// authenticate and load-failed-with-tls-errors signals.
+// HTTP authentication, server certificates and client certificates of
+// pages: the web view's authenticate and load-failed-with-tls-errors
+// signals.
 
 var (
 	webkitAuthenticationRequestGetHost      func(req ptr) ptr
@@ -46,8 +47,8 @@ func bindAuth() {
 }
 
 // authScheme names WebKitAuthenticationScheme's HTTP schemes, "" the
-// others, client certificates among them, which get WebKit's default
-// handling.
+// others, which get WebKit's default handling, but for client
+// certificates (clientCertificate).
 func authScheme(scheme int32) string {
 	switch scheme {
 	case 1, 2: // DEFAULT, HTTP_BASIC
@@ -78,8 +79,15 @@ func initAuthCallbacks() {
 	// Returning false leaves the request to WebKit: its sign-in dialog.
 	cbAuthenticate = purego.NewCallback(func(web, req, data ptr) bool {
 		w := b().window(data)
-		scheme := authScheme(webkitAuthenticationRequestGetScheme(req))
-		if w == nil || scheme == "" {
+		if w == nil {
+			return false
+		}
+		kind := webkitAuthenticationRequestGetScheme(req)
+		if kind == schemeClientCertificate {
+			return w.clientCertificate(req)
+		}
+		scheme := authScheme(kind)
+		if scheme == "" {
 			return false
 		}
 		resp := w.h.AuthRequested(platform.AuthRequest{
@@ -148,6 +156,33 @@ func initAuthCallbacks() {
 		}
 		return 0 // G_SOURCE_REMOVE
 	})
+}
+
+// schemeClientCertificate is
+// WEBKIT_AUTHENTICATION_SCHEME_CLIENT_CERTIFICATE_REQUESTED, which
+// WebKitGTK asks with libsoup 3 (WebKitGTK 4.1), from 2.34.
+const schemeClientCertificate = 7
+
+// clientCertificate asks the app about a server asking for a client
+// certificate, and reports whether it answered. WebKitGTK has no list
+// of certificates to offer, so the app can only leave the request to
+// WebKit or go on without one; WebKit's default handling goes on
+// without one too. Presenting one would take
+// webkit_credential_new_for_certificate (2.34) and a GTlsCertificate
+// with its private key, which only the app could load.
+func (w *window) clientCertificate(req ptr) bool {
+	if !w.h.HandlesClientCertificates() {
+		return false
+	}
+	resp := w.h.ClientCertificateRequested(platform.ClientCertificateRequest{
+		Host: goStr(webkitAuthenticationRequestGetHost(req)),
+		Port: int(webkitAuthenticationRequestGetPort(req)),
+	})
+	if resp.Default {
+		return false
+	}
+	webkitAuthenticationRequestAuthenticate(req, 0) // without a certificate
+	return true
 }
 
 // connectAuth connects the signals of the web view's authentication.

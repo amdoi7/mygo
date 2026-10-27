@@ -324,8 +324,11 @@ type Window struct {
 	permissionHandler  func(PermissionRequest) bool
 	authHandler        func(AuthRequest) AuthResponse
 	certificateHandler func(CertificateError) bool
-	pageCtx            context.Context
-	pageCancel         context.CancelFunc
+	// clientCertificateHandler answers with the handler of
+	// SetClientCertificateHandler.
+	clientCertificateHandler func(platform.ClientCertificateRequest) platform.ClientCertificateResponse
+	pageCtx                  context.Context
+	pageCancel               context.CancelFunc
 	// channels are those of the current page, by the page's id for them.
 	channels map[int64]*channel
 	// closedEarly holds the channels the current page closed before
