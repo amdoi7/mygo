@@ -255,6 +255,13 @@ export interface WindowsConfig {
   signCommand?: string;
   /** The time stamping server of `certificate` (default: `http://timestamp.digicert.com`). */
   timestampUrl?: string;
+  /**
+   * An NSIS script that the installer includes, e.g. `build/installer.nsh`:
+   * the macros it defines among `customInit`, `customInstall` and
+   * `customUnInstall` run when the installer starts, at the end of the
+   * install, and in the uninstall before the app's folder is removed.
+   */
+  installerInclude?: string;
 }
 
 /** Linux packaging. */

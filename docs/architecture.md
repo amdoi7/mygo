@@ -4069,7 +4069,13 @@ renderer's (`gputest.Compare`).
   last: the folder is gone once the uninstall is done. It tries deleting
   each shortcut again for up to 5 s, as Explorer opens a new shortcut a
   few seconds after it appears, not sharing it for deletion, and `Delete`
-  fails meanwhile.
+  fails meanwhile. `windows.installerInclude` names a script of the
+  app's own that the generated one `!include`s after MUI2.nsh and the
+  languages (`nsisHooks`); its `customInit`, `customInstall` and
+  `customUnInstall` macros, each inserted only under `!ifmacrodef`, run
+  in `.onInit`, at the end of the install section and in the uninstall
+  section before `RMDir /r "$INSTDIR"`, as electron-builder's do; without
+  it the script is unchanged.
   `makensis` comes from an installation of NSIS or, on Windows, where NSIS
   is rarely installed, from the official zip of the release that
   `Release` in `internal/nsis` pins, which the CLI downloads once, checks

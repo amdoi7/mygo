@@ -388,6 +388,98 @@ func TestNSISDisplayName(t *testing.T) {
 	}
 }
 
+// TestNSISHooks checks windows.installerInclude: the installer includes the
+// script after MUI2.nsh and the languages, and runs its customInit,
+// customInstall and customUnInstall macros, each only when the script
+// defines it; without it, the script has none of that. makensis, when
+// there is one, takes a script that defines some of the macros only.
+func TestNSISHooks(t *testing.T) {
+	dir := t.TempDir()
+	nsh := filepath.Join(dir, "build", "installer.nsh")
+	if err := os.MkdirAll(filepath.Dir(nsh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooks := "!macro customInstall\n  CreateDirectory \"$LOCALAPPDATA\\Hooks Test\"\n!macroend\n" +
+		"!macro customUnInstall\n  RMDir \"$LOCALAPPDATA\\Hooks Test\"\n!macroend\n"
+	if err := os.WriteFile(nsh, []byte(hooks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &Config{Name: "Hooks Test", Identifier: "com.example.hooks", Version: "1.0.0", root: dir}
+	exe := c.executableName() + ".exe"
+	files := "  File \"C:\\stage\\" + exe + "\"\n"
+	plain, err := installerScript(c, `C:\out\setup.exe`, exe, files, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"!ifmacrodef", "customInit", "customInstall", "customUnInstall", ".onInit", "installer.nsh"} {
+		if strings.Contains(plain, s) {
+			t.Errorf("without windows.installerInclude, %q in:\n%s", s, plain)
+		}
+	}
+
+	c.Windows.InstallerInclude = "build/installer.nsh"
+	script, err := installerScript(c, `C:\out\setup.exe`, exe, files, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	include := "!include " + nsisString(nsh) + "\n" +
+		"!ifmacrodef customInit\nFunction .onInit\n  !insertmacro customInit\nFunctionEnd\n!endif\n"
+	install := "  !ifmacrodef customInstall\n    !insertmacro customInstall\n  !endif\n"
+	uninstall := "  !ifmacrodef customUnInstall\n    !insertmacro customUnInstall\n  !endif\n"
+	// Each in its place: the include after MUI2.nsh and the languages,
+	// customInstall last in the install's section, and customUnInstall in
+	// the uninstall's, before it removes $INSTDIR.
+	for _, order := range [][]string{
+		{`!include "MUI2.nsh"`, `!insertmacro MUI_LANGUAGE "English"`, include, "\nSection\n"},
+		{"\nSection\n", "  WriteUninstaller ", install + "SectionEnd\n"},
+		{"Section \"Uninstall\"\n", "  DeleteRegKey HKCU ", uninstall + "  ; Last,", "  RMDir /r \"$INSTDIR\"\n"},
+	} {
+		at := 0
+		for _, s := range order {
+			i := strings.Index(script[at:], s)
+			if i < 0 {
+				t.Fatalf("no %q after %q in:\n%s", s, order[0], script)
+			}
+			at += i + len(s)
+		}
+	}
+	// It adds them, and changes nothing else.
+	rest := script
+	for _, s := range []string{include, install, uninstall} {
+		if strings.Count(rest, s) != 1 {
+			t.Fatalf("%q is not in the script once:\n%s", s, script)
+		}
+		rest = strings.Replace(rest, s, "", 1)
+	}
+	if rest != plain {
+		t.Errorf("windows.installerInclude changed more than the hooks:\n%s", script)
+	}
+
+	for _, missing := range []string{"build/missing.nsh", "build"} {
+		c.Windows.InstallerInclude = missing
+		if _, err := installerScript(c, `C:\out\setup.exe`, exe, files, "", ""); err == nil || !strings.Contains(err.Error(), "windows.installerInclude") {
+			t.Errorf("windows.installerInclude %q: %v", missing, err)
+		}
+	}
+
+	if tool := makensis(); tool != "" && !testing.Short() {
+		c.Windows.InstallerInclude = "build/installer.nsh"
+		os.WriteFile(filepath.Join(dir, exe), []byte("MZ"), 0o644)
+		out := filepath.Join(dir, "setup.exe")
+		script, err := installerScript(c, out, exe, "  File "+nsisString(filepath.Join(dir, exe))+"\n", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		nsi := filepath.Join(dir, "installer.nsi")
+		if err := writeNSIS(nsi, script); err != nil {
+			t.Fatal(err)
+		}
+		if b, err := exec.Command(tool, "-V2", nsi).CombinedOutput(); err != nil {
+			t.Errorf("makensis: %v\n%s", err, b)
+		}
+	}
+}
+
 // TestWindowsInstallerEncoding checks that installer.nsi is written as UTF-8
 // with a byte order mark. NSIS on Windows reads a script without a BOM as
 // ANSI, in the machine's code page, even after `Unicode true`: a name or a

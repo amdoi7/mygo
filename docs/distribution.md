@@ -409,6 +409,56 @@ its SHA-256 and kept in `%LOCALAPPDATA%\mygo`. On macOS and
 Linux, install NSIS to make Windows installers (`brew install makensis`,
 `apt install nsis`); without it, `mygo build` skips the installer.
 
+### Installer hooks
+
+`windows.installerInclude` adds steps of the app's own to the installer:
+an NSIS script, relative to the project's directory, that the installer
+includes after MUI2.nsh and its languages, as electron-builder's `include`
+does. Of the macros it defines, `customInstall` runs at the end of the
+install, once the app's files are in `$INSTDIR`; `customUnInstall` runs in
+the uninstall, before the uninstaller removes `$INSTDIR`; and `customInit`
+runs in `.onInit`, when the installer starts, e.g. to check what the app
+needs before anything is installed. A macro the script does not define is left out, and
+`mygo build` stops when the script does not exist.
+
+```ts
+export default defineConfig({
+  windows: { installerInclude: "build/installer.nsh" },
+});
+```
+
+The script below copies a [helper executable](#helper-executables) that
+the app ships as `resources/windows/bin/helper.exe`, installed as
+`$INSTDIR\bin\helper.exe`, into the user's data directory, and removes it
+on uninstall:
+
+```nsis
+; build/installer.nsh
+!macro customInstall
+  CreateDirectory "$LOCALAPPDATA\My App\bin"
+  CopyFiles /SILENT "$INSTDIR\bin\helper.exe" "$LOCALAPPDATA\My App\bin"
+!macroend
+
+!macro customUnInstall
+  Delete "$LOCALAPPDATA\My App\bin\helper.exe"
+  RMDir "$LOCALAPPDATA\My App\bin"
+!macroend
+```
+
+The macros run in silent installs and uninstalls (`/S`) too, as
+[`install.ps1`](#install-scripts-for-macos-and-windows) runs the installer:
+`IfSilent` tells them apart, and a message box needs `/SD` to answer
+itself. [Updates](updates.md) replace the app's files without the
+installer, so they run none of the macros. Functions that
+`customUnInstall` calls are the uninstaller's, named with `un.`.
+
+The installer installs for the current user without administrator rights,
+so that the app can update itself: the hooks should keep to what the user
+can write, such as `$LOCALAPPDATA` and `HKCU`. The installer already lets
+the user choose the folder, and the uninstaller removes the app's folder
+only, keeping the app's data. Signing applies to the installer and its
+uninstaller as it does without hooks.
+
 ### Code signing
 
 Unsigned apps make SmartScreen warn users. Sign the executable, the
