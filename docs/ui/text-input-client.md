@@ -135,8 +135,10 @@ without overriding behavior built into a framework-owned editor.
 
 `ShapeText(text, font, width)` and `ShapeRichText(spans, font, width)` produce a
 `TextLayout` using Core Text, Pango or DirectWrite. Positive `width` wraps text;
-zero only breaks at newlines. Cache layouts by paragraph or line and replace
-only those affected by an edit.
+zero only breaks at newlines. `Font.LineHeight` sets the height of the lines
+as a multiple of the size, as `Element.LineHeight` does for `Text` (about 1.8
+suits CJK prose); 0 keeps the font's own. Cache layouts by paragraph or line
+and replace only those affected by an edit.
 
 ```go
 layout := ui.ShapeText(paragraph, ui.Font{Size: 16}, availableWidth)
