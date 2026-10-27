@@ -135,6 +135,9 @@ type windowHost struct {
 	told, asked bool
 	// path is how the last frame was drawn, for MYGO_FRAME_STATS.
 	path string
+	// background is the scene's Background the surface was last told
+	// (platform.BackgroundSurface).
+	background scene.Color
 	// wide tells that the GPU renderer draws the colors of scenes outside
 	// the sRGB gamut (see wideHold), until wideUntil.
 	wide      bool
@@ -431,6 +434,12 @@ func (h *windowHost) present(s *scene.Scene) {
 	defer h.recheck()
 	if s.Width <= 0 || s.Height <= 0 {
 		return
+	}
+	if s.Background != h.background {
+		h.background = s.Background
+		if b, ok := h.conn.Surface.(platform.BackgroundSurface); ok {
+			b.SetBackground(platform.Color(s.Background))
+		}
 	}
 	if !h.framing {
 		// A frame built outside the surface's, for a capture, is shown by

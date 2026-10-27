@@ -3728,7 +3728,14 @@ either.
     presented at once (sync interval 0), not after the frame queued
     before it, and waits until DWM shows it (`DwmFlush`), so a live
     resize shows no stretched frames: the window takes its next size
-    with the frame of that size. Resizing the buffers takes DWM longer
+    with the frame of that size. DWM may still show the window at its new
+    size a refresh before that frame (#222), so the window's swap chain
+    shows its frames unscaled (`DXGI_SCALING_NONE`) with the content's
+    background beyond them (`SetBackgroundColor`, from
+    `scene.Scene.Background`), and the window paints what it grew by
+    around its surface with that background before fitting the surface
+    to it (`platform.BackgroundSurface`, `fillUncovered`): what shows
+    meanwhile is the background, not black. Resizing the buffers takes DWM longer
     than a frame for a window about as large as a 4K screen, so while
     the window changes size the swap chain has three buffers a quarter
     larger than the window, and shows the window's size of them

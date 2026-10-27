@@ -490,10 +490,17 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 			return w.frameCalcSize(wp, lp), true
 		}
 	case wmEraseBkgnd:
-		if w.bgBrush != 0 && w.vibrancy == "" {
+		brush := w.bgBrush
+		if w.surface != nil && w.surface.bgBrush != 0 {
+			// Native UI's own background, around its surface (which the
+			// window clips out) while the surface does not fill the window
+			// yet: see fillUncovered.
+			brush = w.surface.bgBrush
+		}
+		if brush != 0 && w.vibrancy == "" {
 			var r rect
 			procGetClientRect.Call(w.hwnd, uintptr(unsafe.Pointer(&r)))
-			procFillRect.Call(wp, uintptr(unsafe.Pointer(&r)), w.bgBrush)
+			procFillRect.Call(wp, uintptr(unsafe.Pointer(&r)), brush)
 		}
 		return 1, true
 	case wmWindowPosChanging:
@@ -539,6 +546,10 @@ func (w *window) message(m uint32, wp, lp uintptr) (uintptr, bool) {
 func (w *window) sized(kind uintptr) {
 	w.resizeWebView()
 	if w.surface != nil {
+		// What the window grew by shows the content's background, not
+		// black, until the surface presents the frame of its new size,
+		// which fitting it draws at once.
+		w.surface.fillUncovered()
 		w.surface.fit()
 	}
 	if kind != sizeMinimized {
