@@ -268,6 +268,12 @@ term, err := terminal.New(terminal.Options{
   closed once the program exited, and `ExitCode` returns its code (-1 for
   a program that could not start); the terminal then shows "[Process
   exited]".
+- `OnOutput` receives the raw bytes read from the program or `Conn`
+  before the terminal interprets them, including escape sequences. Calls
+  run serially on the reader's goroutine; a slow callback delays output.
+  The bytes are read-only and valid only until the callback returns, so
+  copy them to retain them. `Feed` does not call it, and `Done` closes
+  after the final callback returns.
 - `OpenLink` takes the links Command+click opens, on the main thread,
   and with it file paths printed as text too (`/abs/path`, `~/notes.md`,
   `./a.go`, `src/app.go:12:3`, `main.go:250`), as printed: a relative

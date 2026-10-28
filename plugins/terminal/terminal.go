@@ -198,6 +198,11 @@ type Options struct {
 	OnExit   func(code int)
 	OnBell   func()
 	OnNotify func(title, body string)
+	// OnOutput sees the raw bytes read from the program or Conn before
+	// they are interpreted. Calls run serially on the reader's goroutine;
+	// the bytes are read-only and valid only until the callback returns.
+	// Feed does not call it, and Done closes after the final call returns.
+	OnOutput func(data []byte)
 	// OnPasteStatus tells how a paste goes that a program reads itself
 	// (mode 5522, see PasteData), on a goroutine of the terminal: offered,
 	// then sending as the program reads, then sent; or not taken when the
@@ -766,6 +771,9 @@ func (t *Terminal) read() {
 	for {
 		n, err := t.src.Read(buf)
 		if n > 0 {
+			if t.opts.OnOutput != nil {
+				t.opts.OnOutput(buf[:n])
+			}
 			t.write(buf[:n])
 		}
 		if err != nil {
