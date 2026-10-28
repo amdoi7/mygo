@@ -3,8 +3,11 @@ dist/
 .mygo/
 examples/*/dist/
 examples/*/build/
+temp_auto_push.bat
 /mygo
 /cmd/mygo/mygo
 packages/cli/npm/*/bin/
 .DS_Store
 mygo.ts
+.gitignore
+branch_structure.json

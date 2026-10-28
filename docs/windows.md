@@ -1009,8 +1009,9 @@ win.Page().SetClientCertificateHandler(func(req mygo.ClientCertificateRequest) m
 })
 ```
 
-Without a handler, WebView2 shows its picker when there are certificates
-to pick from, and macOS and Linux go on without a certificate. The web
+Without a handler, the web view decides: macOS and Linux go on without a
+certificate, and so did WebView2 where it was tried, though Microsoft
+documents a picker it may show. The web
 view may keep the answer for that server for the rest of the session,
 and the system may ask the user before a private key is used, as macOS
 does for a key in the keychain. WebKitGTK knows no certificates, so on

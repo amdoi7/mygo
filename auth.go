@@ -246,8 +246,9 @@ type ClientCertificateResponse struct {
 //     WebKitGTK 2.34 and later ask with libsoup 3 (WebKitGTK 4.1; with
 //     4.0, fn is never asked). WebKitGTK lists no certificates, so fn
 //     can only present none or leave the default.
-//   - Windows: WebView2's picker, when there are certificates to pick
-//     from. MyGo answers ICoreWebView2_5's ClientCertificateRequested,
+//   - Windows: WebView2's own handling, which went on without a
+//     certificate where it was tried, though Microsoft documents a
+//     picker it may show. MyGo answers ICoreWebView2_5's ClientCertificateRequested,
 //     with its MutuallyTrustedCertificates; on a runtime without it, fn
 //     is never asked.
 func (p *Page) SetClientCertificateHandler(fn func(req ClientCertificateRequest) ClientCertificateResponse) {

@@ -185,7 +185,7 @@ func (w *window) serverCertificateErrorDetected(_, args uintptr) {
 
 // clientCertificateRequested asks the app which of the certificates
 // WebView2 found in the user's store to present to a server asking for
-// one. Leaving Handled false leaves it to WebView2: its picker.
+// one. Leaving Handled false leaves it to WebView2's own handling.
 func (w *window) clientCertificateRequested(_, args uintptr) {
 	if !w.h.HandlesClientCertificates() {
 		return
