@@ -97,4 +97,13 @@ export const showcase: ShowcaseApp[] = [
     author: "egoist",
     mode: "native",
   },
+  {
+    name: "留白 Liubai",
+    description:
+      "An open-source Markdown editor and reader for macOS, with a Windows beta. The page formats as you type, the finished document reads beside it or on its own, files stay plain .md, and eleven themes follow the hours of the day or the seasons.",
+    url: "https://liubai.echovic.com",
+    author: "echoVic",
+    mode: "web",
+    image: "/showcase/liubai.jpg",
+  },
 ]
