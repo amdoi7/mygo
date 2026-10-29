@@ -100,6 +100,7 @@ func layoutTree(root *node, w, h float32) {
 	if ov := root.c.overlay; ov != nil {
 		layoutAbsolute(ov)
 	}
+	rt.placeDockedSurfaces()
 	if rt.late {
 		// Lists resized by their transitions built rows as they laid out
 		// anew.
@@ -466,6 +467,9 @@ func heightAt(e *node, w, cbH float32) float32 {
 // naturalHeight returns the height of the element when it is w wide,
 // before its minimum and maximum heights: its flex base size in a column.
 func naturalHeight(e *node, w, cbH float32) float32 {
+	if dock := e.dock; dock != nil && dock.slot == e {
+		return dock.height(w, cbH)
+	}
 	if v, ok := e.height.resolve(base(cbH)); ok {
 		return v
 	}
@@ -1180,6 +1184,22 @@ func layoutAbsolute(e *node) {
 	for c := e.first; c != nil; c = c.next {
 		if c.flags&flagAbsolute == 0 || c.leaving != 0 || c.hidden {
 			// Copies of elements leaving are placed by their transitions.
+			continue
+		}
+		if dock := c.dock; dock != nil && dock.surface == c && !dock.detached {
+			dock.place(e)
+			continue
+		}
+		if c.placement != nil {
+			_, _, scale := e.c.rt.host.size()
+			r, visible := c.placement(Rect{W: e.w, H: e.h}, scale)
+			if visible {
+				c.flags &^= flagInvisible
+			} else {
+				c.flags |= flagInvisible
+			}
+			c.x, c.y = r.X, r.Y
+			layoutBox(c, max(0, r.W), max(0, r.H))
 			continue
 		}
 		if c.attach != 0 {

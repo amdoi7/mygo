@@ -91,14 +91,14 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	ed.r = r
 	ed.layout(r.W, r.H, p.Scale())
 	more := false
-	if !v.measureWraps(ed.anchorLine, 4*time.Millisecond) {
+	if !ed.hasGutterActions() && !v.measureWraps(ed.anchorLine, 4*time.Millisecond) {
 		more = true
 	}
 	if ed.o.sharedScroll == nil {
 		ed.restoreScroll()
 		ed.doReveal()
 	}
-	if ed.autoscroll() {
+	if !ed.hasGutterActions() && ed.autoscroll() {
 		p.AnimationFrame()
 	}
 	ct := ed.theme
@@ -692,7 +692,7 @@ func (ed *editor) paintGutter(p *ui.Painter, r ui.Rect, f *frame) {
 			for _, m := range ed.o.gutterMarks {
 				if m.Line == line {
 					d := lh * 0.45
-					p.Fill(ui.Rect{X: r.X + 3, Y: y + (lh-d)/2, W: d, H: d}, m.Color, d/2)
+					p.Fill(ui.Rect{X: r.X + ed.gutterActionWidth() + 3, Y: y + (lh-d)/2, W: d, H: d}, m.Color, d/2)
 				}
 			}
 			// Change bars.

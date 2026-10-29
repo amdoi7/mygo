@@ -427,7 +427,9 @@ type node struct {
 	// placeOn is a sibling, laid out in the parent's flow, whose box an
 	// absolute element's insets are measured from instead of the parent's.
 	// A split uses it to keep its handle on the divider.
-	placeOn *node
+	placeOn   *node
+	placement LayoutPlacement
+	dock      *surfaceDock
 	// overflow is set on a toolbar, whose layout notes there the controls
 	// it had no room for, and takes them out of the flow, collapsed.
 	overflow  *[]toolbarItem

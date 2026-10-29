@@ -89,7 +89,7 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		ed.view.measureWraps(0, time.Second)
 		e.Height(float32(ed.view.heights.total()))
 		ed.scrollY = 0
-	} else if ed.r.W > 0 {
+	} else if ed.r.W > 0 && !ed.hasGutterActions() {
 		// Scroll to what moved before building what depends on it.
 		ed.layout(ed.r.W, ed.r.H, max(1, ed.view.scale))
 		if ed.o.sharedScroll == nil {
@@ -118,6 +118,7 @@ func (ed *editor) build(c *ui.Context, buf *Buffer, o options) ui.Element {
 		}
 	}
 	e.Children(func() {
+		ed.buildGutterActions(c)
 		// Popups attach to boxes at the caret, or at the text hovered.
 		anchor := func(key string, at int) (ui.Element, bool) {
 			cr, ok := ed.caretRect(at)

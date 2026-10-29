@@ -92,6 +92,10 @@ type State struct {
 	// GutterMarks marks lines in the gutter, as breakpoints or
 	// bookmarks: a dot of their color.
 	GutterMarks []GutterMark
+	// GutterActions are named buttons in their own column before markers
+	// and line numbers. RenderGutterAction styles and fills each button.
+	GutterActions      []GutterAction
+	RenderGutterAction func(c *ui.Context, button ui.Element, action GutterAction)
 	// LineBackgrounds fill the rows of lines with colors, under the
 	// text and the selections, as the statement a key runs: not the
 	// gutter, nor the lines folds hide. They keep their line numbers as
@@ -188,6 +192,13 @@ type GutterMark struct {
 	Color ui.Color
 }
 
+// GutterAction names one button on a zero-based source line. Key is unique
+// within the editor; folded and out-of-range lines have no visible button.
+type GutterAction struct {
+	Line       int
+	Key, Label string
+}
+
 // LineBackground fills lines First to Last, from 0, with Color. The lines
 // are those of the text when it is set: an edit adding or removing lines
 // above them doesn't move them.
@@ -212,6 +223,7 @@ func (st *State) options() options {
 		wrapGuides: st.WrapGuides, indentGuides: !st.NoIndentGuides, scrollPastEnd: !st.NoScrollPastEnd && !st.FitContent,
 		autoClose: !st.NoAutoClose, folding: !st.NoFolding, activeLine: !st.NoActiveLine, cursorShape: st.CursorShape, fitContent: st.FitContent,
 		placeholder: st.Placeholder, label: st.Label, theme: st.Theme, bindings: st.Bindings, gutterMarks: st.GutterMarks,
+		gutterActions: st.GutterActions, renderGutterAction: st.RenderGutterAction,
 		backgrounds: st.LineBackgrounds, textBgs: st.TextBackgrounds, diffBase: st.DiffBase, onCompletion: st.OnCompletion, onHover: st.OnHover, onDefinition: st.OnDefinition,
 		onGutterClick: st.OnGutterClick, contextMenu: st.ContextMenu, onInput: st.OnInput, noInputMethod: st.NoInputMethod, minDigits: 3,
 		renderFindBar: st.RenderFindBar, renderGoToLine: st.RenderGoToLine,

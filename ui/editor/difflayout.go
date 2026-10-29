@@ -125,11 +125,18 @@ func (d *DiffState) prepare() {
 	if unified {
 		for hi, h := range d.model.hunks {
 			if h.A1 > h.A0 {
+				oldEnd := h.A1
+				if !hasFileLine(d.model.oldText, oldEnd-1) {
+					oldEnd--
+				}
+				if oldEnd <= h.A0 {
+					continue
+				}
 				var height float32
-				for i := h.A0; i < h.A1; i++ {
+				for i := h.A0; i < oldEnd; i++ {
 					height += rowsOf(viewA, i) + anns[DiffOld][i]
 				}
-				b := block{kind: blockDeleted, height: height, from: h.A0, to: h.A1, hunk: hi}
+				b := block{kind: blockDeleted, height: height, from: h.A0, to: oldEnd, hunk: hi}
 				if h.B0 < viewB.text.LineCount() {
 					b.line = h.B0
 				} else {

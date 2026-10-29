@@ -444,7 +444,7 @@ func TestLayoutCacheReuses(t *testing.T) {
 func TestLayoutInputs(t *testing.T) {
 	// Fields of node that the layout reads besides layoutStyle, compared
 	// or made volatile by sameLayout, and those it writes.
-	read := "flags ts cols rows spans image svg placeOn list form colFit overflow gridFit leaving ghosts attach popover " +
+	read := "flags ts cols rows spans image svg placeOn placement dock list form colFit overflow gridFit leaving ghosts attach popover " +
 		"first last next nchild parent st c measured tl lay laid x y w h contentW contentH frags runes paragraph " +
 		"ownText merged spansKey collapsed rowMinW field hidden"
 	// Fields the layout never reads.

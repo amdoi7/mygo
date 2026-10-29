@@ -22,39 +22,41 @@ const (
 type options struct {
 	// diffSide is the side of a diff viewer the editor shows, which
 	// names it.
-	diffSide      int8
-	readOnly      bool
-	font          ui.Font
-	lineHeight    float32
-	tabSize       int
-	indent        IndentStyle
-	wrap          bool
-	wrapColumn    int
-	lineNumbers   LineNumbers
-	whitespace    Whitespace
-	wrapGuides    []int
-	indentGuides  bool
-	scrollPastEnd bool
-	autoClose     bool
-	folding       bool
-	activeLine    bool
-	cursorShape   CursorShape
-	fitContent    bool
-	placeholder   string
-	label         string
-	theme         *Theme
-	bindings      []Binding
-	gutterMarks   []GutterMark
-	backgrounds   []LineBackground
-	textBgs       []TextBackground
-	diffBase      *Buffer
-	onCompletion  func(CompletionRequest)
-	onHover       func(HoverRequest)
-	onDefinition  func(int)
-	onGutterClick func(int)
-	contextMenu   func(m *ui.Menu)
-	onInput       func(ui.InputEvent) bool
-	noInputMethod bool
+	diffSide           int8
+	readOnly           bool
+	font               ui.Font
+	lineHeight         float32
+	tabSize            int
+	indent             IndentStyle
+	wrap               bool
+	wrapColumn         int
+	lineNumbers        LineNumbers
+	whitespace         Whitespace
+	wrapGuides         []int
+	indentGuides       bool
+	scrollPastEnd      bool
+	autoClose          bool
+	folding            bool
+	activeLine         bool
+	cursorShape        CursorShape
+	fitContent         bool
+	placeholder        string
+	label              string
+	theme              *Theme
+	bindings           []Binding
+	gutterMarks        []GutterMark
+	gutterActions      []GutterAction
+	renderGutterAction func(*ui.Context, ui.Element, GutterAction)
+	backgrounds        []LineBackground
+	textBgs            []TextBackground
+	diffBase           *Buffer
+	onCompletion       func(CompletionRequest)
+	onHover            func(HoverRequest)
+	onDefinition       func(int)
+	onGutterClick      func(int)
+	contextMenu        func(m *ui.Menu)
+	onInput            func(ui.InputEvent) bool
+	noInputMethod      bool
 	// The parts' render functions, nil for the editor's own.
 	renderFindBar     func(*ui.Context, ui.Element, *FindBar)
 	renderGoToLine    func(*ui.Context, ui.Element, *GoToLineBar)
@@ -608,7 +610,7 @@ func (ed *editor) numbersOn() bool {
 
 func (ed *editor) gutterWidth() float32 {
 	v := &ed.view
-	w := float32(0)
+	w := ed.gutterActionWidth()
 	if ed.numbersOn() {
 		digits := max(ed.o.minDigits, len(strconv.Itoa(v.text.LineCount())))
 		w += float32(digits)*v.charWidth + v.charWidth*1.5
