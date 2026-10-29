@@ -9,8 +9,6 @@ import (
 	"github.com/egoist/mygo/internal/rope"
 )
 
-const maxInlineLineBytes = 1000
-
 // diffModel keeps the hunks between the lines of two buffers, old and
 // new, as either changes. An edit of the new text compares again only
 // the lines around it, from the unchanged lines before the hunks it
@@ -372,7 +370,7 @@ func (d *diffModel) wordsOf(i int, mode DiffInline) *hunkWords {
 		if j < 0 || j >= len(b) {
 			continue
 		}
-		if len(a[i]) > maxInlineLineBytes || len(b[j]) > maxInlineLineBytes {
+		if len(a[i]) > 1000 || len(b[j]) > 1000 {
 			continue
 		}
 		ra, rb := inlineDiff(a[i], b[j], mode)
@@ -536,20 +534,6 @@ func (d *diffModel) hunksTouching(from, to int) []int {
 		out = append(out, k)
 	}
 	return out
-}
-
-func (d *diffModel) oldLineOf(newLine int) (int, bool) {
-	delta := 0
-	for _, h := range d.hunks {
-		if newLine < h.B0 {
-			break
-		}
-		if newLine < h.B1 {
-			return 0, false
-		}
-		delta = h.A1 - h.B1
-	}
-	return newLine + delta, true
 }
 
 // newLineOf returns the new line an unchanged old line is, and false for
