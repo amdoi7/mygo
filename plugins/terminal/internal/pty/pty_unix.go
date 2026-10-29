@@ -8,11 +8,16 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 type sys struct {
+	killMu sync.Mutex
 	master *os.File
 	cmd    *exec.Cmd
 }
@@ -47,13 +52,14 @@ func (p *PTY) start(o Options) error {
 
 func (p *PTY) wait() (int, error) {
 	err := p.cmd.Wait()
+	cleanupErr := p.waitSession()
 	if e, ok := errors.AsType[*exec.ExitError](err); ok {
 		if ws, ok := e.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			return 128 + int(ws.Signal()), nil
+			return 128 + int(ws.Signal()), cleanupErr
 		}
-		return e.ExitCode(), nil
+		return e.ExitCode(), cleanupErr
 	}
-	return 0, err
+	return 0, errors.Join(err, cleanupErr)
 }
 
 // Read reads the output of the process; it returns io.EOF once no process
@@ -95,12 +101,63 @@ func (p *PTY) Pid() int { return p.cmd.Process.Pid }
 // they get SIGHUP. It does not wait for them to exit.
 func (p *PTY) Close() error { return p.master.Close() }
 
-// Kill kills the process and those of its process group, which it leads.
+// Kill requests termination of live session processes, including job-control groups.
 func (p *PTY) Kill() error {
-	if err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL); err == nil {
-		return nil
+	_, err := p.killSession()
+	return err
+}
+
+func (p *PTY) waitSession() error {
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		live, err := p.killSession()
+		if err != nil || live == 0 {
+			return err
+		}
+		<-tick.C
 	}
-	return p.cmd.Process.Kill()
+}
+
+func (p *PTY) killSession() (int, error) {
+	p.killMu.Lock()
+	defer p.killMu.Unlock()
+	data, err := exec.Command("/bin/ps", "-axo", "pid=,stat=").Output()
+	if err != nil {
+		return 0, fmt.Errorf("pty: enumerate session: %w", err)
+	}
+	live := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 2 {
+			return live, fmt.Errorf("pty: invalid process record %q", line)
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return live, fmt.Errorf("pty: invalid process ID: %w", err)
+		}
+		if strings.Contains(fields[1], "Z") {
+			continue
+		}
+		sid, _, errno := syscall.Syscall(syscall.SYS_GETSID, uintptr(pid), 0, 0)
+		if errno == syscall.ESRCH {
+			continue
+		}
+		if errno != 0 {
+			return live, fmt.Errorf("pty: session of process %d: %w", pid, errno)
+		}
+		if int(sid) != p.cmd.Process.Pid {
+			continue
+		}
+		live++
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return live, fmt.Errorf("pty: kill session process %d: %w", pid, err)
+		}
+	}
+	return live, nil
 }
 
 func setSize(f *os.File, cols, rows, width, height int) error {

@@ -192,6 +192,10 @@ type Options struct {
 	// something else.
 	ImageLimit int64
 
+	// OnOutput observes incoming PTY/Conn bytes before interpretation, serially.
+	// The slice is borrowed until return; Feed and status messages are excluded.
+	OnOutput func(data []byte)
+
 	// OnTitle, OnExit, OnBell and OnNotify run on a goroutine of the
 	// terminal when a program sets the title, when the program (or Conn)
 	// ends, when it rings the bell, and when it asks for a desktop
@@ -494,8 +498,9 @@ func (r *ClipboardRequest) answer(a int8) {
 // Terminal is a terminal emulator and the program it runs. Its methods are
 // safe from any goroutine.
 type Terminal struct {
-	opts Options
-	in   inputQueue
+	opts      Options
+	in        inputQueue
+	lifecycle sync.Mutex
 
 	// quoting is how dropped files' paths are quoted, for the program's
 	// shell.
@@ -508,6 +513,8 @@ type Terminal struct {
 	asked   gridSize // what the view last asked Conn for, with ResizeByConn
 	events  events
 	closed  bool
+	stopped bool
+	err     error
 	clipOut []string // what programs copied, for the view to write
 	// clipForward are reads of the clipboard for a Mirror to pass on, with
 	// ClipboardForward: whether each is of the primary selection. The
@@ -700,24 +707,30 @@ func (t *Terminal) start(o *pty.Options) {
 	if o == nil {
 		return
 	}
+	t.lifecycle.Lock()
 	t.mu.Lock()
+	if t.stopped {
+		t.mu.Unlock()
+		t.lifecycle.Unlock()
+		t.code.Store(-1)
+		t.finish()
+		return
+	}
 	s := t.size
 	t.mu.Unlock()
 	o.Cols, o.Rows, o.Width, o.Height = s.cols, s.rows, s.cols*s.cellW, s.rows*s.cellH
 	proc, err := pty.Start(*o)
 	if err != nil {
+		t.mu.Lock()
+		t.err = err
+		t.mu.Unlock()
+		t.lifecycle.Unlock()
 		t.write([]byte("\x1b[31m" + err.Error() + "\x1b[0m"))
 		t.code.Store(-1)
 		t.finish()
 		return
 	}
 	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
-		proc.Close()
-		t.finish()
-		return
-	}
 	t.proc, t.src = proc, proc
 	if t.size != s {
 		// Resized while it started.
@@ -727,15 +740,14 @@ func (t *Terminal) start(o *pty.Options) {
 	go func() {
 		code, _ := proc.Wait()
 		t.code.Store(int64(code))
-		// What the program wrote before exiting is still to be read; then
-		// hang up whatever else has the terminal, as terminal apps do.
-		select {
-		case <-t.done:
-		case <-time.After(100 * time.Millisecond):
-			proc.Close()
+		// ConPTY flushes its final screen while closing. Unix reaches EOF
+		// after Wait reaps the leader and cleans its managed process group.
+		if runtime.GOOS == "windows" {
+			t.closeSrc()
 		}
 	}()
 	t.run()
+	t.lifecycle.Unlock()
 }
 
 // command returns the program to run and its arguments, with args[0] its
@@ -797,9 +809,17 @@ func (t *Terminal) read() {
 	for {
 		n, err := t.src.Read(buf)
 		if n > 0 {
+			if t.opts.OnOutput != nil {
+				t.opts.OnOutput(buf[:n])
+			}
 			t.write(buf[:n])
 		}
 		if err != nil {
+			t.mu.Lock()
+			if !t.stopped && !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
+				t.err = errors.Join(t.err, err)
+			}
+			t.mu.Unlock()
 			break
 		}
 	}
@@ -844,7 +864,10 @@ func (t *Terminal) fire(ev events, title string) {
 func (t *Terminal) ended() {
 	t.closeSrc()
 	if t.proc != nil {
-		code, _ := t.proc.Wait()
+		code, err := t.proc.Wait()
+		t.mu.Lock()
+		t.err = errors.Join(t.err, err)
+		t.mu.Unlock()
 		t.code.Store(int64(code))
 	}
 	t.mu.Lock()
@@ -884,6 +907,13 @@ func (t *Terminal) Done() <-chan struct{} { return t.done }
 // the signal's number for a program a signal killed, -1 for one that
 // could not start.
 func (t *Terminal) ExitCode() int { return int(t.code.Load()) }
+
+// Err returns a startup, output-read or process-wait failure, not a nonzero exit code.
+func (t *Terminal) Err() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.err
+}
 
 // Title returns the title the program set (OSC 0, OSC 2).
 func (t *Terminal) Title() string {
@@ -1107,18 +1137,17 @@ func (t *Terminal) ClearScreen() bool {
 // ClearScrollback clears the scrollback, leaving the screen as it is.
 func (t *Terminal) ClearScrollback() { t.write([]byte("\x1b[3J")) }
 
-// Close closes the terminal: the program is hung up (SIGHUP), or Conn
-// closed, and the terminal frees its memory. A view of it then shows
-// nothing.
-func (t *Terminal) Close() error {
+// Stop hangs up the program or closes Conn, retaining the emulator and scrollback.
+// Done closes only after the process and its output settle.
+func (t *Terminal) Stop() error {
+	t.lifecycle.Lock()
 	t.mu.Lock()
-	if t.closed {
+	if t.stopped {
 		t.mu.Unlock()
+		t.lifecycle.Unlock()
 		return nil
 	}
-	t.closed = true
-	t.offer = nil
-	t.clipReads = nil
+	t.stopped = true
 	src, proc, waiting := t.src, t.proc, t.launch != nil
 	t.launch = nil
 	if t.timer != nil {
@@ -1126,28 +1155,46 @@ func (t *Terminal) Close() error {
 	}
 	t.mu.Unlock()
 	var err error
-	switch {
-	case src != nil:
+	if src != nil {
 		err = t.closeSrc()
-	case waiting:
-		// The program never started; one starting finishes itself.
-		t.code.Store(-1)
-		t.finish()
 	}
 	if proc != nil {
-		// A program that ignores the hangup is killed after a moment.
 		go func() {
 			select {
-			case <-proc.Exited():
+			case <-t.done:
 			case <-time.After(2 * time.Second):
-				proc.Kill()
+				if err := proc.Kill(); err != nil {
+					select {
+					case <-proc.Exited():
+					default:
+						t.mu.Lock()
+						t.err = errors.Join(t.err, err)
+						t.mu.Unlock()
+					}
+				}
 			}
 		}()
 	}
 	t.in.close()
-	// The reader may be writing to the emulator, and a frame drawing it:
-	// free it under the locks.
+	t.lifecycle.Unlock()
+	if waiting {
+		t.code.Store(-1)
+		t.finish()
+	}
+	return err
+}
+
+// Close stops the terminal and frees its emulator; a view then shows nothing.
+func (t *Terminal) Close() error {
+	err := t.Stop()
 	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return err
+	}
+	t.closed = true
+	t.offer = nil
+	t.clipReads = nil
 	t.rmu.Lock()
 	t.endSearch()
 	t.term.Free()
