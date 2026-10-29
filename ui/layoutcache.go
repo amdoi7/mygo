@@ -177,7 +177,7 @@ func sameLayout(e *node, parent uint64, index int, changed bool) bool {
 	// that change what is inside them as they lay out, whose elements
 	// keep nothing: the next layout finds their states not seen by this
 	// one.
-	self := e.kind == kindInput || e.attach != 0 || e.placement != nil || e.dock != nil || e.ghosts
+	self := e.kind == kindInput || e.attach != 0 || e.placement != nil || e.ghosts
 	tree := e.list != nil || e.form != nil || e.colFit != nil || e.overflow != nil ||
 		e.gridFit != nil || e.leaving != 0 || e.kind == kindText && e.first != nil
 	if tree {

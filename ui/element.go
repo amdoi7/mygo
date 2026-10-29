@@ -429,7 +429,6 @@ type node struct {
 	// A split uses it to keep its handle on the divider.
 	placeOn   *node
 	placement LayoutPlacement
-	dock      *surfaceDock
 	// overflow is set on a toolbar, whose layout notes there the controls
 	// it had no room for, and takes them out of the flow, collapsed.
 	overflow  *[]toolbarItem

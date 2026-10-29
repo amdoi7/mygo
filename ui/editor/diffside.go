@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/egoist/mygo/internal/rope"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -106,13 +105,6 @@ func (s *diffSide) number(line int) int {
 		return pt.fileLine(s.old || false, line) + 1
 	}
 	return line + 1
-}
-
-func hasFileLine(text rope.Text, line int) bool {
-	if text.Len() == 0 || line < 0 || line >= text.LineCount() {
-		return false
-	}
-	return line != text.LineCount()-1 || text.Slice(text.Len()-1, text.Len()) != "\n"
 }
 
 // paintBlock paints a block: a filler of rows a side lacks, hatched, or
