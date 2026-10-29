@@ -8,3 +8,7 @@ examples/*/build/
 packages/cli/npm/*/bin/
 .DS_Store
 mygo.ts
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
